@@ -1,12 +1,8 @@
 package git
 
 import (
-	"errors"
 	"fmt"
-	"gvisor.dev/gvisor/pkg/tcpip"
-	"gvisor.dev/gvisor/pkg/tcpip/header"
-	"gvisor.dev/gvisor/pkg/tcpip/ports"
-	"math/rand"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -96,24 +92,16 @@ func (s *BaseSuite) TearDownTest(c *C) {
 	c.Assert(err, IsNil)
 }
 
-var portManager = ports.NewPortManager()
-var rng = rand.New(rand.NewSource(time.Now().UnixNano()))
-
 func freePort() (int, error) {
-	portRes := ports.Reservation{
-		Networks:     []tcpip.NetworkProtocolNumber{header.IPv4ProtocolNumber},
-		Transport:    header.TCPProtocolNumber,
-		Addr:         tcpip.AddrFrom4([4]byte{127, 0, 0, 1}),
-		Port:         0,
-		Flags:        ports.Flags{},
-		BindToDevice: 0,
-		Dest:         tcpip.FullAddress{},
-	}
-
-	gotPort, err := portManager.ReservePort(rng, portRes, nil)
+	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
 	if err != nil {
-		return 0, errors.New(err.String())
+		return 0, err
 	}
 
-	return int(gotPort), nil
+	l, err := net.ListenTCP("tcp", addr)
+	if err != nil {
+		return 0, err
+	}
+
+	return l.Addr().(*net.TCPAddr).Port, l.Close()
 }
