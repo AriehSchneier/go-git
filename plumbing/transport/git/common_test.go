@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"sync"
 	"testing"
 	"time"
 
@@ -92,6 +93,9 @@ func (s *BaseSuite) TearDownTest(c *C) {
 	c.Assert(err, IsNil)
 }
 
+// only allow single usage of ports
+var used = sync.Map{}
+
 func freePort() (int, error) {
 	addr, err := net.ResolveTCPAddr("tcp", "localhost:0")
 	if err != nil {
@@ -103,5 +107,13 @@ func freePort() (int, error) {
 		return 0, err
 	}
 
-	return l.Addr().(*net.TCPAddr).Port, l.Close()
+	port := l.Addr().(*net.TCPAddr).Port
+	_, loaded := used.LoadOrStore(port, true)
+	if loaded {
+		// already used pick another
+		defer func() { _ = l.Close() }()
+		return freePort()
+	}
+
+	return port, l.Close()
 }
