@@ -15,6 +15,7 @@ After the legal issues with the [`src-d`](https://github.com/src-d) organization
 The project is currently actively maintained by individual contributors, including several of the original authors, but also backed by a new company, [gitsight](https://github.com/gitsight), where `go-git` is a critical component used at scale.
 
 
+
 Comparison with git
 -------------------
 
