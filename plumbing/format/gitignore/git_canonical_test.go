@@ -340,31 +340,27 @@ func (s *GitCanonicalSuite) TestEdgeCases() {
 
 // Test bracket expressions (this will show the discrepancy with git)
 func (s *GitCanonicalSuite) TestBracketExpressions() {
-	// Note: This test documents the current go-git behavior vs git behavior
-	// go-git uses Go's filepath.Match which treats [!a] as literal ! or a
-	// git treats [!a] as negation (not a)
+	// git-pkgs/gitignore correctly treats [!a] as negation (not a), matching Git
+	// Verified with: echo '[!a]bc' > .gitignore && git check-ignore -v abc xbc !bc
 	patterns := []string{"[!a]bc", "[0-9]*.txt"}
 	m := s.createMatcher(patterns)
 
 	tests := []struct {
-		path            string
-		ignored         bool
-		gitShouldIgnore bool // What git actually does
-		desc            string
+		path    string
+		ignored bool
+		desc    string
 	}{
-		{"!bc", true, false, "go-git: [!a] matches literal !, git: doesn't"},
-		{"abc", true, false, "go-git: [!a] matches literal a, git: doesn't"},
-		{"xbc", false, true, "go-git: [!a] doesn't match x, git: does"},
-		{"1test.txt", true, true, "number patterns work the same"},
-		{"5data.txt", true, true, "number patterns work the same"},
-		{"atest.txt", false, false, "non-number doesn't match"},
+		{"!bc", true, "[!a]bc matches !bc (! is not 'a', so [!a] matches) ✓"},
+		{"abc", false, "[!a]bc doesn't match abc (a matches [!a] negation) ✓"},
+		{"xbc", true, "[!a]bc matches xbc (x doesn't match a, so [!a] matches) ✓"},
+		{"bbc", true, "[!a]bc matches bbc ✓"},
+		{"1test.txt", true, "[0-9]*.txt matches 1test.txt ✓"},
+		{"5data.txt", true, "[0-9]*.txt matches 5data.txt ✓"},
+		{"atest.txt", false, "atest.txt doesn't match [0-9]* ✓"},
 	}
 
 	for _, tt := range tests {
 		result := s.testPath(m, tt.path, false)
-		s.Equal(tt.ignored, result, "%s: %s (go-git behavior)", tt.desc, tt.path)
-		if tt.ignored != tt.gitShouldIgnore {
-			s.T().Logf("DISCREPANCY: %s - go-git: %v, git: %v", tt.path, tt.ignored, tt.gitShouldIgnore)
-		}
+		s.Equal(tt.ignored, result, "%s: %s", tt.desc, tt.path)
 	}
 }

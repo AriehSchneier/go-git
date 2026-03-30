@@ -1,8 +1,9 @@
 package gitignore
 
 import (
-	"path/filepath"
 	"strings"
+
+	extgitignore "github.com/git-pkgs/gitignore"
 )
 
 // MatchResult defines outcomes of a match, no match, exclusion or inclusion.
@@ -19,7 +20,6 @@ const (
 
 const (
 	inclusionPrefix = "!"
-	zeroToManyDirs  = "**"
 	patternDirSep   = "/"
 )
 
@@ -30,21 +30,22 @@ type Pattern interface {
 }
 
 type pattern struct {
-	domain    []string
-	pattern   []string
-	inclusion bool
-	dirOnly   bool
-	isGlob    bool
+	domain        []string
+	patternText   string
+	originalText  string
+	isInclusion   bool
 }
 
 // ParsePattern parses a gitignore pattern string into the Pattern structure.
 func ParsePattern(p string, domain []string) Pattern {
 	// storing domain, copy it to ensure it isn't changed externally
 	domain = append([]string(nil), domain...)
-	res := pattern{domain: domain}
+
+	originalText := p
+	isInclusion := false
 
 	if strings.HasPrefix(p, inclusionPrefix) {
-		res.inclusion = true
+		isInclusion = true
 		p = p[1:]
 	}
 
@@ -52,20 +53,16 @@ func ParsePattern(p string, domain []string) Pattern {
 		p = strings.TrimRight(p, " ")
 	}
 
-	if strings.HasSuffix(p, patternDirSep) {
-		res.dirOnly = true
-		p = p[:len(p)-1]
+	return &pattern{
+		domain:       domain,
+		patternText:  p,
+		originalText: originalText,
+		isInclusion:  isInclusion,
 	}
-
-	if strings.Contains(p, patternDirSep) {
-		res.isGlob = true
-	}
-
-	res.pattern = strings.Split(p, patternDirSep)
-	return &res
 }
 
 func (p *pattern) Match(path []string, isDir bool) MatchResult {
+	// Check if path is within the domain
 	if len(path) <= len(p.domain) {
 		return NoMatch
 	}
@@ -75,84 +72,53 @@ func (p *pattern) Match(path []string, isDir bool) MatchResult {
 		}
 	}
 
-	path = path[len(p.domain):]
-	if p.isGlob && !p.globMatch(path, isDir) {
-		return NoMatch
-	} else if !p.isGlob && !p.simpleNameMatch(path, isDir) {
+	// Extract the path relative to the domain
+	relativePath := path[len(p.domain):]
+
+	// Convert path from []string to string with forward slashes
+	pathStr := strings.Join(relativePath, patternDirSep)
+
+	// Create a matcher with this single pattern
+	// The domain serves as the directory context for the pattern
+	matcher := extgitignore.New("")
+
+	// Build the pattern line with domain prefix if needed
+	// git-pkgs/gitignore expects patterns relative to the matcher's directory
+	patternLine := p.patternText
+	if p.isInclusion {
+		patternLine = inclusionPrefix + patternLine
+	}
+
+	matcher.AddPatterns([]byte(patternLine), "")
+
+	// Match using git-pkgs/gitignore
+	// Use MatchPath for directory-awareness, MatchDetail for negation info
+	matchPath := matcher.MatchPath(pathStr, isDir)
+
+	// MatchDetail requires trailing slash to identify directories for patterns like !dir/**/
+	detailPath := pathStr
+	if isDir && !strings.HasSuffix(pathStr, patternDirSep) {
+		detailPath = pathStr + patternDirSep
+	}
+	detail := matcher.MatchDetail(detailPath)
+
+	// If MatchPath says no match, trust it (handles directory-specific patterns)
+	// Exception: detail might show a negation match even when MatchPath is false
+	if !matchPath && !detail.Matched {
 		return NoMatch
 	}
 
-	if p.inclusion {
+	// If detail shows a negation pattern matched, that's an Include
+	if detail.Negate {
 		return Include
 	}
-	return Exclude
-}
 
-func (p *pattern) simpleNameMatch(path []string, isDir bool) bool {
-	for i, name := range path {
-		if match, err := filepath.Match(p.pattern[0], name); err != nil {
-			return false
-		} else if !match {
-			continue
-		}
-		if p.dirOnly && !isDir && i == len(path)-1 {
-			return false
-		}
-		return true
+	// If MatchPath matched, it's an Exclude
+	if matchPath {
+		return Exclude
 	}
-	return false
-}
 
-func (p *pattern) globMatch(path []string, isDir bool) bool {
-	matched := false
-	canTraverse := false
-	for i, pattern := range p.pattern {
-		if pattern == "" {
-			canTraverse = false
-			continue
-		}
-		if pattern == zeroToManyDirs {
-			if i == len(p.pattern)-1 {
-				break
-			}
-			canTraverse = true
-			continue
-		}
-		if strings.Contains(pattern, zeroToManyDirs) {
-			return false
-		}
-		if len(path) == 0 {
-			return false
-		}
-		if canTraverse {
-			canTraverse = false
-			for len(path) > 0 {
-				e := path[0]
-				path = path[1:]
-				if match, err := filepath.Match(pattern, e); err != nil {
-					return false
-				} else if match {
-					matched = true
-					break
-				} else if len(path) == 0 {
-					// if nothing left then fail
-					matched = false
-				}
-			}
-		} else {
-			if match, err := filepath.Match(pattern, path[0]); err != nil || !match {
-				return false
-			}
-			matched = true
-			path = path[1:]
-			// files matching dir globs, don't match
-			if len(path) == 0 && i < len(p.pattern)-1 {
-				matched = false
-			}
-		}
-	}
-	if matched && p.dirOnly && !isDir && len(path) == 0 {
-		matched = false
-	}
-	return matched
+	// Edge case: detail.Matched but !matchPath and !detail.Negate
+	// This can happen with directory-specific patterns - trust MatchPath
+	return NoMatch
 }
