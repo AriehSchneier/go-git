@@ -519,7 +519,7 @@ func TestSubmoduleRelativeURLRemoteWithoutURLs(t *testing.T) {
 
 	sub := &Submodule{
 		initialized: true,
-		w:           &Worktree{filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS()), r: parent},
+		w:           &Worktree{filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()), r: parent},
 		c: &config.Submodule{
 			Name: "child",
 			Path: "child",
