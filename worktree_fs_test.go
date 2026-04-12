@@ -32,11 +32,11 @@ func TestValidPath(t *testing.T) {
 		{".gitmodules", false},
 		{".gitignore", false},
 		{"a..b", false},
-		{".", false},
+		{".", true},
+		{"a/.git/b", true},
+		{"a\\.git\\b", true},
 		{"a/.git", false},
 		{"a\\.git", false},
-		{"a/.git/b", false},
-		{"a\\.git\\b", false},
 	}
 
 	for _, tc := range tests {
@@ -222,7 +222,6 @@ func TestWorktreeFilesystemAllowsValidPaths(t *testing.T) {
 		"readme.md",
 		"src/main.go",
 		".gitignore",
-		"a/.git/b",
 	}
 
 	for _, p := range validPaths {

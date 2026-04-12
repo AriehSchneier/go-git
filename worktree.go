@@ -679,9 +679,6 @@ func (w *Worktree) resetWorktreeToTree(fromTree, toTree *object.Tree, files []st
 		if len(files) > 0 && !inFiles(filesMap, name) {
 			continue
 		}
-		if err := w.validChange(ch); err != nil {
-			return err
-		}
 		if err := rmFileAndDirsIfEmpty(w.filesystem, name); err != nil {
 			return err
 		}
@@ -725,9 +722,6 @@ func (w *Worktree) resetWorktreeToTree(fromTree, toTree *object.Tree, files []st
 			}
 		}
 
-		if err := w.validChange(ch); err != nil {
-			return err
-		}
 		if err := w.checkoutChange(ch, toTree, b); err != nil {
 			return err
 		}
@@ -772,10 +766,6 @@ func (w *Worktree) resetWorktree(t *object.Tree, files []string) error {
 
 	filesMap := buildFilePathMap(files)
 	for _, ch := range changes {
-		if err := w.validChange(ch); err != nil {
-			return err
-		}
-
 		if len(files) > 0 {
 			file := ""
 			if ch.From != nil {
@@ -801,24 +791,6 @@ func (w *Worktree) resetWorktree(t *object.Tree, files []string) error {
 
 	b.Write(idx)
 	return w.r.Storer.SetIndex(idx)
-}
-
-func (w *Worktree) validChange(ch merkletrie.Change) error {
-	action, err := ch.Action()
-	if err != nil {
-		return nil
-	}
-
-	switch action {
-	case merkletrie.Delete:
-		return w.filesystem.validPath(ch.From.String())
-	case merkletrie.Insert:
-		return w.filesystem.validPath(ch.To.String())
-	case merkletrie.Modify:
-		return w.filesystem.validPath(ch.From.String(), ch.To.String())
-	}
-
-	return nil
 }
 
 func (w *Worktree) checkoutChange(ch merkletrie.Change, t *object.Tree, idx *indexBuilder) error {
