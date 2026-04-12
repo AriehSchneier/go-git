@@ -36,13 +36,13 @@ func setupBenchmarkRepo(b *testing.B, numFiles, numSubdirs, numGoroutines int) *
 		wg.Go(func() {
 			for filePath := range fileChan {
 				dir := filepath.Dir(filePath)
-				err := wt.Filesystem.MkdirAll(dir, 0o755)
+				err := wt.Filesystem().MkdirAll(dir, 0o755)
 				if err != nil {
 					b.Errorf("failed to create directory %s: %v", dir, err)
 					continue
 				}
 
-				err = util.WriteFile(wt.Filesystem, filePath, content, 0o644)
+				err = util.WriteFile(wt.Filesystem(), filePath, content, 0o644)
 				if err != nil {
 					b.Errorf("failed to write file %s: %v", filePath, err)
 				}
@@ -126,7 +126,7 @@ func benchmarkStatusModified(wt *Worktree, numFiles, numSubdirs int) func(b *tes
 			subdir := fmt.Sprintf("dir%d", i%numSubdirs)
 			fileName := fmt.Sprintf("file%04d.txt", i)
 			filePath := filepath.Join(subdir, fileName)
-			err := util.WriteFile(wt.Filesystem, filePath, modifiedContent, 0o644)
+			err := util.WriteFile(wt.Filesystem(), filePath, modifiedContent, 0o644)
 			require.NoError(b, err)
 		}
 
@@ -186,11 +186,11 @@ func setupIgnoredDirRepo(b *testing.B, tracked, untracked int) *Worktree {
 
 	for i := range tracked {
 		path := filepath.Join("src", fmt.Sprintf("dir%02d", i%10), fmt.Sprintf("file%04d.go", i))
-		require.NoError(b, wt.Filesystem.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(b, util.WriteFile(wt.Filesystem, path, []byte("package main\n"), 0o644))
+		require.NoError(b, wt.Filesystem().MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(b, util.WriteFile(wt.Filesystem(), path, []byte("package main\n"), 0o644))
 	}
 
-	require.NoError(b, util.WriteFile(wt.Filesystem, ".gitignore",
+	require.NoError(b, util.WriteFile(wt.Filesystem(), ".gitignore",
 		[]byte(ignoredDir+"/\n"), 0o644))
 
 	require.NoError(b, wt.AddGlob("src/*"))
@@ -209,8 +209,8 @@ func setupIgnoredDirRepo(b *testing.B, tracked, untracked int) *Worktree {
 	// status, and the walker skips the directory entirely.
 	for i := range untracked {
 		path := filepath.Join(ignoredDir, fmt.Sprintf("sub%02d", i%20), fmt.Sprintf("dep%05d.txt", i))
-		require.NoError(b, wt.Filesystem.MkdirAll(filepath.Dir(path), 0o755))
-		require.NoError(b, util.WriteFile(wt.Filesystem, path, []byte("ignored\n"), 0o644))
+		require.NoError(b, wt.Filesystem().MkdirAll(filepath.Dir(path), 0o755))
+		require.NoError(b, util.WriteFile(wt.Filesystem(), path, []byte("ignored\n"), 0o644))
 	}
 
 	return wt

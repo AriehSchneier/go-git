@@ -78,7 +78,7 @@ func (w *Worktree) Commit(msg string, opts *CommitOptions) (plumbing.Hash, error
 	}
 
 	h := &buildTreeHelper{
-		fs: w.Filesystem,
+		fs: w.filesystem,
 		s:  w.r.Storer,
 	}
 
@@ -166,7 +166,7 @@ func (w *Worktree) CherryPick(commitOpts *CommitOptions, ortStrategyOption OrtMe
 				if err != nil {
 					return err
 				}
-				dstFile, err := w.Filesystem.Create(to.Name)
+				dstFile, err := w.filesystem.Create(to.Name)
 				if err != nil {
 					return err
 				}

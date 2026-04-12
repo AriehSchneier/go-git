@@ -3607,7 +3607,7 @@ func (s *RepositorySuite) TestWorktree() {
 	r, _ := Init(memory.NewStorage(), WithWorkTree(def))
 	w, err := r.Worktree()
 	s.NoError(err)
-	s.Equal(def, w.Filesystem)
+	s.Equal(def, w.Filesystem())
 }
 
 func (s *RepositorySuite) TestWorktreeBare() {

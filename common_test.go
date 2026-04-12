@@ -227,7 +227,7 @@ func CommitNewFile(t *testing.T, repo *Repository, fileName string) plumbing.Has
 	wt, err := repo.Worktree()
 	assert.NoError(t, err)
 
-	fd, err := wt.Filesystem.Create(fileName)
+	fd, err := wt.filesystem.Create(fileName)
 	assert.NoError(t, err)
 
 	_, err = fd.Write([]byte("# test file"))

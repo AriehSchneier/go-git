@@ -135,7 +135,7 @@ func TestSubmoduleUpdateWithRecursion(t *testing.T) {
 		})
 		require.NoError(t, err)
 
-		fs := wt.Filesystem
+		fs := wt.filesystem
 		_, err = fs.Stat(fs.Join("itself", primaryFixtureSubmoduleName(f), "LICENSE"))
 		require.NoError(t, err)
 	})
@@ -222,12 +222,12 @@ func TestGitSubmodulesSymlink(t *testing.T) {
 
 		_, wt := cloneFixture(t, f)
 
-		file, err := wt.Filesystem.Create("badfile")
+		file, err := wt.filesystem.Create("badfile")
 		require.NoError(t, err)
 		require.NoError(t, file.Close())
 
-		require.NoError(t, wt.Filesystem.Remove(gitmodulesFile))
-		require.NoError(t, wt.Filesystem.Symlink("badfile", gitmodulesFile))
+		require.NoError(t, wt.filesystem.Remove(gitmodulesFile))
+		require.NoError(t, wt.filesystem.Symlink("badfile", gitmodulesFile))
 
 		_, err = wt.Submodules()
 		require.ErrorIs(t, err, ErrGitModulesSymlink)
@@ -323,7 +323,7 @@ func TestSubmoduleParseScp(t *testing.T) {
 			wt:     memfs.New(),
 		}
 		worktree := &Worktree{
-			Filesystem: memfs.New(),
+			filesystem: newWorktreeFilesystem(memfs.New()),
 			r:          repo,
 		}
 		submodule := &Submodule{
@@ -478,7 +478,7 @@ func TestSubmoduleRelativeURLPicksOrigin(t *testing.T) {
 
 		sub := &Submodule{
 			initialized: true,
-			w:           &Worktree{Filesystem: memfs.New(), r: parent},
+			w:           &Worktree{filesystem: newWorktreeFilesystem(memfs.New()), r: parent},
 			c: &config.Submodule{
 				Name: "child",
 				Path: "child",
@@ -519,7 +519,7 @@ func TestSubmoduleRelativeURLRemoteWithoutURLs(t *testing.T) {
 
 	sub := &Submodule{
 		initialized: true,
-		w:           &Worktree{Filesystem: memfs.New(), r: parent},
+		w:           &Worktree{filesystem: newWorktreeFilesystem(memfs.New()), r: parent},
 		c: &config.Submodule{
 			Name: "child",
 			Path: "child",
