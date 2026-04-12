@@ -811,11 +811,11 @@ func (w *Worktree) validChange(ch merkletrie.Change) error {
 
 	switch action {
 	case merkletrie.Delete:
-		return validPath(ch.From.String())
+		return w.filesystem.validPath(ch.From.String())
 	case merkletrie.Insert:
-		return validPath(ch.To.String())
+		return w.filesystem.validPath(ch.To.String())
 	case merkletrie.Modify:
-		return validPath(ch.From.String(), ch.To.String())
+		return w.filesystem.validPath(ch.From.String(), ch.To.String())
 	}
 
 	return nil

@@ -14,12 +14,13 @@ import (
 
 func TestValidPath(t *testing.T) {
 	t.Parallel()
-	type testcase struct {
+
+	fs := newWorktreeFilesystem(memfs.New(), false)
+
+	tests := []struct {
 		path    string
 		wantErr bool
-	}
-
-	tests := []testcase{
+	}{
 		{".git", true},
 		{".git/b", true},
 		{".git\\b", true},
@@ -38,27 +39,78 @@ func TestValidPath(t *testing.T) {
 		{"a\\.git\\b", false},
 	}
 
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			t.Parallel()
+			err := fs.validPath(tc.path)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidPathProtectNTFS(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), true)
+
+	tests := []struct {
+		path    string
+		wantErr bool
+	}{
+		{".git . . .", true},
+		{".git . . ", true},
+		{".git ", true},
+		{".git.", true},
+		{".git::$INDEX_ALLOCATION", true},
+		{"readme.md", false},
+		{".gitignore", false},
+	}
+
 	if runtime.GOOS == "windows" {
-		tests = append(tests, []testcase{
+		// filepath.VolumeName only parses volume names on Windows.
+		tests = append(tests, []struct {
+			path    string
+			wantErr bool
+		}{
 			{"\\\\a\\b", true},
 			{"C:\\a\\b", true},
-			{".git . . .", true},
-			{".git . . ", true},
-			{".git ", true},
-			{".git.", true},
-			{".git::$INDEX_ALLOCATION", true},
 		}...)
 	}
 
 	for _, tc := range tests {
 		t.Run(tc.path, func(t *testing.T) {
 			t.Parallel()
-			err := validPath(tc.path)
+			err := fs.validPath(tc.path)
 			if tc.wantErr {
 				assert.Error(t, err)
 			} else {
 				assert.NoError(t, err)
 			}
+		})
+	}
+}
+
+func TestValidPathProtectNTFSDisabled(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false)
+
+	paths := []string{
+		".git . . .",
+		".git ",
+		".git.",
+		".git::$INDEX_ALLOCATION",
+	}
+
+	for _, p := range paths {
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+			err := fs.validPath(p)
+			assert.NoError(t, err, "NTFS checks should not apply when protectNTFS is false")
 		})
 	}
 }
@@ -95,7 +147,7 @@ func TestWindowsValidPath(t *testing.T) {
 func TestWorktreeFilesystemRejectsInvalidPaths(t *testing.T) {
 	t.Parallel()
 
-	fs := newWorktreeFilesystem(memfs.New())
+	fs := newWorktreeFilesystem(memfs.New(), false)
 
 	badPaths := []string{
 		".git/config",
@@ -140,10 +192,31 @@ func TestWorktreeFilesystemRejectsInvalidPaths(t *testing.T) {
 	}
 }
 
+func TestWorktreeFilesystemRejectsNTFSPaths(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), true)
+
+	ntfsPaths := []string{
+		".git /config",
+		".git./config",
+		".git::$INDEX_ALLOCATION/config",
+	}
+
+	for _, p := range ntfsPaths {
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := fs.Create(p)
+			assert.Error(t, err, "Create should reject NTFS path %q", p)
+		})
+	}
+}
+
 func TestWorktreeFilesystemAllowsValidPaths(t *testing.T) {
 	t.Parallel()
 
-	fs := newWorktreeFilesystem(memfs.New())
+	fs := newWorktreeFilesystem(memfs.New(), false)
 
 	validPaths := []string{
 		"readme.md",
@@ -189,7 +262,7 @@ func TestWorktreeFilesystemReturnsWorktreeFilesystem(t *testing.T) {
 		t.Parallel()
 
 		mfs := memfs.New()
-		w := &Worktree{filesystem: newWorktreeFilesystem(mfs)}
+		w := &Worktree{filesystem: newWorktreeFilesystem(mfs, false)}
 
 		assert.Equal(t, mfs, w.Filesystem())
 

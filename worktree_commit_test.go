@@ -292,7 +292,7 @@ func (s *WorktreeSuite) TestCommitParent() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		filesystem: newWorktreeFilesystem(fs),
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -315,7 +315,7 @@ func (s *WorktreeSuite) TestCommitAmendWithoutChanges() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		filesystem: newWorktreeFilesystem(fs),
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -350,7 +350,7 @@ func (s *WorktreeSuite) TestCommitAmendWithChanges() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		filesystem: newWorktreeFilesystem(fs),
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -401,7 +401,7 @@ func (s *WorktreeSuite) TestCommitAmendNothingToCommit() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		filesystem: newWorktreeFilesystem(fs),
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -480,7 +480,7 @@ func TestAddAndCommitWithSkipStatus(t *testing.T) {
 	r := NewRepositoryWithEmptyWorktree(f)
 	w := &Worktree{
 		r:          r,
-		filesystem: newWorktreeFilesystem(fs),
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -532,7 +532,7 @@ func (s *WorktreeSuite) TestAddAndCommitWithSkipStatusPathNotModified() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		filesystem: newWorktreeFilesystem(fs),
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -618,7 +618,7 @@ func (s *WorktreeSuite) TestCommitAll() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		filesystem: newWorktreeFilesystem(fs),
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -644,7 +644,7 @@ func (s *WorktreeSuite) TestRemoveAndCommitAll() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		filesystem: newWorktreeFilesystem(fs),
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
