@@ -12,6 +12,7 @@ import (
 	"github.com/go-git/go-git/v6/plumbing/protocol/capability"
 	"github.com/go-git/go-git/v6/plumbing/protocol/packp"
 	"github.com/go-git/go-git/v6/storage"
+	"github.com/go-git/go-git/v6/utils/ioutil"
 )
 
 // StreamSession implements Session over a full-duplex stream.
@@ -145,7 +146,15 @@ func (s *StreamSession) Archive(ctx context.Context, req *ArchiveRequest) (io.Re
 	if s.svc != UploadArchiveService {
 		return nil, ErrArchiveUnsupported
 	}
-	return Archive(ctx, s.conn.Writer(), io.NopCloser(s.conn.Reader()), req)
+
+	rc := ioutil.NewReadCloser(s.conn.Reader(), s.conn)
+	archive, err := Archive(ctx, s.conn.Writer(), rc, req)
+	if err != nil {
+		_ = rc.Close()
+		return nil, err
+	}
+
+	return archive, nil
 }
 
 var (
