@@ -102,6 +102,7 @@ func (w *Worktree) Add(wt billy.Filesystem, name string, opts ...Option) error {
 		if err != nil {
 			return fmt.Errorf("unable to open repository: %w", err)
 		}
+		defer func() { _ = r.Close() }()
 
 		ref, err := r.Head()
 		if err != nil {
@@ -142,6 +143,7 @@ func (w *Worktree) Add(wt billy.Filesystem, name string, opts ...Option) error {
 	if err != nil {
 		return err
 	}
+	defer func() { _ = r.Close() }()
 
 	work, err := r.Worktree()
 	if err != nil {

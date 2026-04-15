@@ -23,6 +23,14 @@ func TestSubmoduleSuite(t *testing.T) {
 	suite.Run(t, new(SubmoduleSuite))
 }
 
+func (s *SubmoduleSuite) SetupSuite() {
+	// SubmoduleSuite creates its own repository in SetupTest,
+	// so we don't call buildBasicRepository() here to avoid creating
+	// a repository that will be immediately overwritten (and leaked).
+	// We only initialize the cache.
+	s.cache = make(map[string]*Repository)
+}
+
 func (s *SubmoduleSuite) SetupTest() {
 	url := s.GetLocalRepositoryURL(fixtures.ByTag("submodule").One())
 
@@ -32,6 +40,12 @@ func (s *SubmoduleSuite) SetupTest() {
 	s.Repository = r
 	s.Worktree, err = r.Worktree()
 	s.Require().NoError(err)
+}
+
+func (s *SubmoduleSuite) TearDownTest() {
+	if s.Repository != nil {
+		_ = s.Repository.Close()
+	}
 }
 
 func (s *SubmoduleSuite) TestInit() {
@@ -274,6 +288,7 @@ func (s *SubmoduleSuite) TestSubmoduleParseScp() {
 		URL: "git@github.com:username/submodule_repo",
 	}
 
-	_, err := submodule.Repository()
+	r, err := submodule.Repository()
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 }

@@ -142,8 +142,10 @@ func TestThinPack(t *testing.T) {
 	assert.ErrorIs(t, err, packfile.ErrReferenceDeltaNotFound)
 
 	// start over with a clean repo
+	_ = r.Close()
 	r, err = git.PlainInit(t.TempDir(), true)
 	assert.NoError(t, err)
+	defer func() { _ = r.Close() }()
 
 	// Now unpack a base packfile into our empty repo:
 	f := fixtures.ByURL("https://github.com/spinnaker/spinnaker.git").One()

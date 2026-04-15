@@ -27,6 +27,7 @@ func TestIndexEntrySizeUpdatedForNonRegularFiles(t *testing.T) {
 	r, err := Init(s, WithWorkTree(w))
 	require.NoError(t, err)
 	require.NotNil(t, r)
+	defer func() { _ = r.Close() }()
 
 	wt, err := r.Worktree()
 	require.NoError(t, err)
