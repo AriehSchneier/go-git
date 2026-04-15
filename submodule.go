@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"path"
 
 	"github.com/go-git/go-billy/v6"
@@ -87,6 +88,11 @@ func (s *Submodule) status(idx *index.Index) (*SubmoduleStatus, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	head, err := r.Head()
 	if err == nil {
@@ -211,6 +217,11 @@ func (s *Submodule) update(ctx context.Context, o *SubmoduleUpdateOptions, force
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	if err := s.fetchAndCheckout(ctx, r, o, hash); err != nil {
 		return err

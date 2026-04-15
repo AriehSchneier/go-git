@@ -55,6 +55,9 @@ func TestParserHashes(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
+			if closer, ok := tc.storage.(io.Closer); ok {
+				defer func() { _ = closer.Close() }()
+			}
 			f := fixtures.Basic().One()
 
 			obs := new(testObserver)
@@ -142,8 +145,16 @@ func TestThinPack(t *testing.T) {
 	assert.ErrorIs(t, err, packfile.ErrReferenceDeltaNotFound)
 
 	// start over with a clean repo
+	if closer, ok := r.Storer.(io.Closer); ok {
+		_ = closer.Close()
+	}
 	r, err = git.PlainInit(t.TempDir(), true)
 	assert.NoError(t, err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	// Now unpack a base packfile into our empty repo:
 	f := fixtures.ByURL("https://github.com/spinnaker/spinnaker.git").One()

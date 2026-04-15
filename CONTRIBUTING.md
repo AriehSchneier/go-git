@@ -68,6 +68,34 @@ In order for a PR to be accepted it needs to pass a list of requirements:
 - If the PR is a new feature, it has to come with a suite of unit tests that cover the new functionality.
 - In any case, all the PRs have to pass the personal evaluation of at least one of the maintainers of go-git.
 
+## Code Review Checklist
+
+When reviewing code (whether you're a human reviewer or using AI tools to assist), please verify:
+
+### Resource Management
+- **Storage cleanup**: Storage instances must be closed by whoever creates them. Repository doesn't own storage (it's passed in), so it's the caller's responsibility:
+  - **Plain\* functions** (`PlainClone`, `PlainInit`, `PlainOpen`, `PlainOpenWithOptions`): These create storage internally, so the returned repository's storage must be closed with `defer func() { if closer, ok := r.Storer.(io.Closer); ok { _ = closer.Close() } }()` immediately after error checking.
+  - **Direct storage creation** (`filesystem.NewStorage`, `transactional.NewStorage`): If you create a storage, you must close it with `defer func() { _ = sto.Close() }()`.
+  - **Do not discard repositories** with `_`. If you see `_, err := PlainClone(...)`, assign it to a variable and close its storage.
+  - Rationale: Prevents file handle leaks that cause intermittent Windows test failures.
+  - **Leak detection**: Run tests with `-tags leakcheck` to enable automatic detection of unclosed storages:
+    ```bash
+    go test -tags leakcheck ./...
+    ```
+    This will panic with a clear message if any storage is garbage collected without calling `Close()`.
+- **File handle cleanup**: All file `Open()` calls should have corresponding `defer Close()` calls, using `defer func() { _ = f.Close() }()` to avoid errcheck violations.
+- **Other closeable resources**: Check for leaked connections, file descriptors, and other resources that implement `io.Closer`.
+
+### Git Compatibility
+- Changes must match the behavior of the reference `git` implementation.
+- When possible, contributors should link to relevant upstream Git source code or documentation.
+- Test cases should verify compatibility with real Git repositories.
+
+### Test Quality
+- New code must include tests that actually exercise the feature or bug fix.
+- Tests should not rely on timing or race conditions for correctness.
+- Resource cleanup in tests is mandatory (see Resource Management above).
+
 ### Branches
 
 The development branch is `main`, where all development takes place.

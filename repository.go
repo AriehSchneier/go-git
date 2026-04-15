@@ -364,6 +364,7 @@ func PlainInit(path string, isBare bool, options ...InitOption) (*Repository, er
 	})
 	r, err := initFn(s)
 	if err != nil {
+		_ = s.Close()
 		return nil, err
 	}
 
@@ -373,11 +374,13 @@ func PlainInit(path string, isBare bool, options ...InitOption) (*Repository, er
 
 	cfg, err := r.Config()
 	if err != nil {
+		_ = s.Close()
 		return nil, err
 	}
 
 	err = r.Storer.SetConfig(cfg)
 	if err != nil {
+		_ = s.Close()
 		return nil, err
 	}
 
@@ -441,7 +444,12 @@ func PlainOpenWithOptions(path string, o *PlainOpenOptions) (*Repository, error)
 
 	s := filesystem.NewStorage(repositoryFs, cache.NewObjectLRUDefault())
 
-	return Open(s, wt)
+	r, err := Open(s, wt)
+	if err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	return r, nil
 }
 
 func dotGitToOSFilesystems(path string, detect bool) (dot, wt billy.Filesystem, err error) {
@@ -619,6 +627,10 @@ func PlainCloneContext(ctx context.Context, path string, o *CloneOptions) (*Repo
 			// We created the directory; remove it entirely.
 			_ = os.RemoveAll(path)
 		}
+		// Close the storage that PlainInit created
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
 		return r, err
 	}
 
@@ -657,16 +669,6 @@ func checkTargetDirIsEmpty(path string) (empty bool, err error) {
 	}
 
 	return false, nil
-}
-
-// Close releases any open resources held by the repository. It must be called
-// when the repository is no longer needed. It is safe to call Close on a
-// repository backed by memory storage, where it is a no-op.
-func (r *Repository) Close() error {
-	if c, ok := r.Storer.(io.Closer); ok {
-		return c.Close()
-	}
-	return nil
 }
 
 // Config return the repository config. In a filesystem backed repository this
@@ -1093,6 +1095,11 @@ func (r *Repository) clone(ctx context.Context, o *CloneOptions) error {
 		if err != nil {
 			return fmt.Errorf("failed to open remote repository: %w", err)
 		}
+		defer func() {
+			if closer, ok := remoteRepo.Storer.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}()
 		conf, err := remoteRepo.Config()
 		if err != nil {
 			return fmt.Errorf("failed to read remote repository configuration: %w", err)
