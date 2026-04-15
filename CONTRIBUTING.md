@@ -51,6 +51,32 @@ In order for a PR to be accepted it needs to pass a list of requirements:
 - If the PR is a new feature, it has to come with a suite of unit tests, that tests the new functionality.
 - In any case, all the PRs have to pass the personal evaluation of at least one of the maintainers of go-git.
 
+## Code Review Checklist
+
+When reviewing code (whether you're a human reviewer or using AI tools to assist), please verify:
+
+### Resource Management
+- **Repository cleanup**: All `Repository` instances created with `PlainClone`, `PlainInit`, `PlainOpen`, `Clone`, or `Open` must have a corresponding `defer func() { _ = repo.Close() }()` immediately after error checking.
+  - **Do not discard repositories** with `_`. If you see `_, err := PlainClone(...)`, assign it to a variable and add `defer Close()`.
+  - Rationale: Prevents file handle leaks that cause intermittent Windows test failures.
+  - **Leak detection**: Run tests with `-tags leakcheck` to enable automatic detection of unclosed repositories:
+    ```bash
+    go test -tags leakcheck ./...
+    ```
+    This will panic with a clear message if any repository is garbage collected without calling `Close()`.
+- **File handle cleanup**: All file `Open()` calls should have corresponding `defer Close()` calls, using `defer func() { _ = f.Close() }()` to avoid errcheck violations.
+- **Other closeable resources**: Check for leaked connections, file descriptors, and other resources that implement `io.Closer`.
+
+### Git Compatibility
+- Changes must match the behavior of the reference `git` implementation.
+- When possible, contributors should link to relevant upstream Git source code or documentation.
+- Test cases should verify compatibility with real Git repositories.
+
+### Test Quality
+- New code must include tests that actually exercise the feature or bug fix.
+- Tests should not rely on timing or race conditions for correctness.
+- Resource cleanup in tests is mandatory (see Resource Management above).
+
 ### Branches
 
 The development branch is `main`, where all development takes place.

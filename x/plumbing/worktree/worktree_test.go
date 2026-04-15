@@ -150,6 +150,7 @@ func TestAdd(t *testing.T) {
 
 				repo, err := w.Open(wt)
 				require.NoError(t, err)
+				defer func() { _ = repo.Close() }()
 
 				// Verify HEAD points to the commit (detached).
 				head, err := repo.Head()
@@ -176,6 +177,7 @@ func TestAdd(t *testing.T) {
 
 				repo, err := w.Open(wt)
 				require.NoError(t, err)
+				defer func() { _ = repo.Close() }()
 
 				// Verify HEAD points to the branch.
 				head, err := repo.Head()
@@ -277,6 +279,7 @@ func checkWorktree(t *testing.T, storage, wt billy.Filesystem, path string) {
 		cache.NewObjectLRUDefault())
 	r, err := git.Open(stor, wt)
 	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	require.NoError(t, err)
@@ -756,6 +759,7 @@ func TestOpen(t *testing.T) {
 
 				r, err := w.Open(wtFS1)
 				require.NoError(t, err)
+				defer func() { _ = r.Close() }()
 
 				wt, err := r.Worktree()
 				require.NoError(t, err)
@@ -806,6 +810,7 @@ func TestOpen(t *testing.T) {
 			}
 
 			require.NoError(t, err, "Open() should not return an error")
+			defer func() { _ = repo.Close() }()
 
 			if tt.checkRepo != nil {
 				tt.checkRepo(t, repo, wtFS)
@@ -852,6 +857,7 @@ func TestInit(t *testing.T) {
 
 				repo, err := w.Open(wt)
 				require.NoError(t, err)
+				defer func() { _ = repo.Close() }()
 				require.NotNil(t, repo)
 
 				fi, err := wt.Stat(".git")
@@ -885,6 +891,7 @@ func TestInit(t *testing.T) {
 
 				repo, err := w.Open(wt)
 				require.NoError(t, err)
+				defer func() { _ = repo.Close() }()
 				require.NotNil(t, repo)
 
 				fi, err := wt.Stat(".git")
@@ -922,6 +929,7 @@ func TestInit(t *testing.T) {
 
 				repo, err := w.Open(wt)
 				require.NoError(t, err)
+				defer func() { _ = repo.Close() }()
 				require.NotNil(t, repo)
 
 				fi, err := wt.Stat(".git")
@@ -980,6 +988,7 @@ func TestInit(t *testing.T) {
 
 				repo, err := w.Open(wt)
 				require.NoError(t, err)
+				defer func() { _ = repo.Close() }()
 
 				head, err := repo.Head()
 				require.NoError(t, err)
@@ -1030,6 +1039,7 @@ func TestWorktreeIsolation(t *testing.T) {
 
 	mainRepo, err := git.PlainInit(mainRepoDir, false)
 	require.NoError(t, err)
+	defer func() { _ = mainRepo.Close() }()
 
 	mainWt, err := mainRepo.Worktree()
 	require.NoError(t, err)
@@ -1053,6 +1063,7 @@ func TestWorktreeIsolation(t *testing.T) {
 	remoteDir := t.TempDir()
 	remoteRepo, err := git.PlainInit(remoteDir, true)
 	require.NoError(t, err)
+	defer func() { _ = remoteRepo.Close() }()
 
 	_, err = mainRepo.CreateRemote(&config.RemoteConfig{
 		Name: "origin",
@@ -1078,6 +1089,7 @@ func TestWorktreeIsolation(t *testing.T) {
 
 	wtRepo, err := w.Open(worktreeFS)
 	require.NoError(t, err)
+	defer func() { _ = wtRepo.Close() }()
 
 	wtWorkTree, err := wtRepo.Worktree()
 	require.NoError(t, err)
@@ -1180,6 +1192,7 @@ func TestWorktreeConfig(t *testing.T) {
 
 		repo, err := w.Open(wtFS)
 		require.NoError(t, err)
+		defer func() { _ = repo.Close() }()
 
 		repoCfg, err := repo.Config()
 		require.NoError(t, err)
@@ -1211,6 +1224,7 @@ func TestWorktreeConfig(t *testing.T) {
 
 		repo, err := w.Open(wtFS)
 		require.NoError(t, err)
+		defer func() { _ = repo.Close() }()
 
 		repoCfg, err := repo.Config()
 		require.NoError(t, err)
@@ -1238,6 +1252,7 @@ func TestWorktreeConfig(t *testing.T) {
 
 		repo, err := w.Open(wtFS)
 		require.NoError(t, err)
+		defer func() { _ = repo.Close() }()
 
 		repoCfg, err := repo.Config()
 		require.NoError(t, err)
@@ -1271,6 +1286,7 @@ func TestWorktreeConfig(t *testing.T) {
 
 		repo, err := w.Open(wtFS)
 		require.NoError(t, err)
+		defer func() { _ = repo.Close() }()
 
 		repoCfg, err := repo.Config()
 		require.NoError(t, err)
@@ -1343,6 +1359,9 @@ func FuzzOpen(f *testing.F) {
 		require.NoError(t, err, "failed to write .git file")
 
 		repo, err := w.Open(wtFS)
+		if repo != nil {
+			defer func() { _ = repo.Close() }()
+		}
 
 		if err == nil && repo == nil {
 			assert.Fail(t, "invalid state: repository and error is nil")
@@ -1376,6 +1395,7 @@ func ExampleWorktree_Open() {
 	if err != nil {
 		panic(err)
 	}
+	defer func() { _ = r.Close() }()
 
 	_, _ = r.Head()
 
@@ -1423,6 +1443,7 @@ func ExampleWorktree_Init() {
 	if err != nil {
 		panic(err)
 	}
+	defer func() { _ = r.Close() }()
 
 	// The worktree is now connected and can be used.
 	_, _ = r.Head()
