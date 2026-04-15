@@ -2,6 +2,7 @@ package git
 
 import (
 	"context"
+	"io"
 	"testing"
 
 	"github.com/go-git/go-billy/v6/memfs"
@@ -23,6 +24,14 @@ func TestSubmoduleSuite(t *testing.T) {
 	suite.Run(t, new(SubmoduleSuite))
 }
 
+func (s *SubmoduleSuite) SetupSuite() {
+	// SubmoduleSuite creates its own repository in SetupTest,
+	// so we don't call buildBasicRepository() here to avoid creating
+	// storage that will be immediately overwritten (and leaked).
+	// We only initialize the cache.
+	s.cache = make(map[string]*Repository)
+}
+
 func (s *SubmoduleSuite) SetupTest() {
 	url := s.GetLocalRepositoryURL(fixtures.ByTag("submodule").One())
 
@@ -32,6 +41,14 @@ func (s *SubmoduleSuite) SetupTest() {
 	s.Repository = r
 	s.Worktree, err = r.Worktree()
 	s.Require().NoError(err)
+}
+
+func (s *SubmoduleSuite) TearDownTest() {
+	if s.Repository != nil {
+		if closer, ok := s.Repository.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
 }
 
 func (s *SubmoduleSuite) TestInit() {
@@ -71,7 +88,11 @@ func (s *SubmoduleSuite) TestUpdate() {
 
 	r, err := sm.Repository()
 	s.Require().NoError(err)
-	defer r.Close()
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	ref, err := r.Reference(plumbing.HEAD, true)
 	s.Require().NoError(err)
@@ -164,7 +185,11 @@ func (s *SubmoduleSuite) TestUpdateWithInitAndUpdate() {
 
 	r, err := sm.Repository()
 	s.Require().NoError(err)
-	defer r.Close()
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	ref, err := r.Reference(plumbing.HEAD, true)
 	s.Require().NoError(err)
@@ -241,7 +266,11 @@ func (s *SubmoduleSuite) TestSubmodulesFetchDepth() {
 
 	r, err := sm.Repository()
 	s.Require().NoError(err)
-	defer r.Close()
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	lr, err := r.Log(&LogOptions{})
 	s.Require().NoError(err)

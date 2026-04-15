@@ -4,6 +4,7 @@ package git
 
 import (
 	"fmt"
+	"io"
 	"path/filepath"
 	"regexp"
 	"testing"
@@ -28,6 +29,11 @@ func TestCloneFileUrlWindows(t *testing.T) {
 
 	r, err := PlainInit(dir, false)
 	require.NoError(t, err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	err = util.WriteFile(r.wt, "foo", nil, 0o755)
 	require.NoError(t, err)
@@ -60,7 +66,7 @@ func TestCloneFileUrlWindows(t *testing.T) {
 
 	for _, tc := range tests {
 		assert.Regexp(t, regexp.MustCompile(tc.pattern), tc.url)
-		_, err = Clone(memory.NewStorage(), nil, &CloneOptions{
+		_, err := Clone(memory.NewStorage(), nil, &CloneOptions{
 			URL: tc.url,
 		})
 

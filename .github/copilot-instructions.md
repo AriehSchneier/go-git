@@ -39,3 +39,14 @@ When reviewing pull requests in this repository, focus on correctness, maintaina
 - Any new encoding or decoding feature must include fuzz tests.
 - Flag encoding/decoding changes that lack fuzz coverage, especially when they parse untrusted, malformed, or external input.
 - Check that fuzz tests cover malformed input, boundary cases, round-trip behavior, and compatibility expectations where relevant.
+
+## Resource management
+
+- **Storage cleanup**: Storage instances must be closed by whoever creates them. Repository doesn't own storage (it's passed in), so it's the caller's responsibility:
+  - **Plain\* functions** (`PlainClone`, `PlainInit`, `PlainOpen`, `PlainOpenWithOptions`): These create storage internally, so the returned repository's storage must be closed with `defer func() { if closer, ok := r.Storer.(io.Closer); ok { _ = closer.Close() } }()` immediately after error checking.
+  - **Direct storage creation** (`filesystem.NewStorage`, `transactional.NewStorage`): If you create a storage, you must close it with `defer func() { _ = sto.Close() }()`.
+  - Flag any repository creation where the instance is discarded with `_`. These must assign to a variable and close the storage.
+  - Rationale: Prevents file handle leaks that cause intermittent Windows test failures.
+  - Leak detection is available via `-tags leakcheck` which will panic with a clear message if storages are garbage collected without calling `Close()`.
+- **File handle cleanup**: All file `Open()` calls should have corresponding `defer Close()` calls, using `defer func() { _ = f.Close() }()` to avoid errcheck violations.
+- **Other closeable resources**: Flag leaked connections, file descriptors, and other resources that implement `io.Closer`.

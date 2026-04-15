@@ -51,9 +51,25 @@ func TestWorktreeSuite(t *testing.T) {
 	suite.Run(t, new(WorktreeSuite))
 }
 
+func (s *WorktreeSuite) SetupSuite() {
+	// WorktreeSuite creates its own repository in SetupTest,
+	// so we don't call buildBasicRepository() here to avoid creating
+	// storage that will be immediately overwritten (and leaked).
+	// We only initialize the cache.
+	s.cache = make(map[string]*Repository)
+}
+
 func (s *WorktreeSuite) SetupTest() {
 	f := fixtures.Basic().One()
 	s.Repository = NewRepositoryWithEmptyWorktree(f)
+}
+
+func (s *WorktreeSuite) TearDownTest() {
+	if s.Repository != nil {
+		if closer, ok := s.Repository.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
 }
 
 func (s *WorktreeSuite) TestPullCheckout() {
@@ -80,6 +96,11 @@ func (s *WorktreeSuite) TestPullFastForward() {
 
 	server, err := PlainClone(s.T().TempDir(), &CloneOptions{URL: url})
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := server.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	r, err := Clone(memory.NewStorage(), memfs.New(), &CloneOptions{URL: server.wt.Root()})
 	s.Require().NoError(err)
@@ -107,6 +128,11 @@ func (s *WorktreeSuite) TestPullNonFastForward() {
 
 	server, err := PlainClone(s.T().TempDir(), &CloneOptions{URL: url})
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := server.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	r, err := Clone(memory.NewStorage(), memfs.New(), &CloneOptions{URL: server.wt.Root()})
 	s.Require().NoError(err)
@@ -241,6 +267,11 @@ func (s *RepositorySuite) TestPullAdd() {
 
 	server, err := PlainClone(s.T().TempDir(), &CloneOptions{URL: url})
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := server.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	r, err := Clone(memory.NewStorage(), memfs.New(), &CloneOptions{URL: server.wt.Root()})
 	s.Require().NoError(err)
@@ -316,6 +347,11 @@ func (s *WorktreeSuite) TestPullAfterShallowClone() {
 
 	remote, err := PlainInit(remoteURL, false)
 	s.NoError(err)
+	defer func() {
+		if closer, ok := remote.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	s.NotNil(remote)
 
 	_ = CommitNewFile(s.T(), remote, "File1")
@@ -329,6 +365,11 @@ func (s *WorktreeSuite) TestPullAfterShallowClone() {
 		ReferenceName: "master",
 	})
 	s.NoError(err)
+	defer func() {
+		if closer, ok := repo.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	_ = CommitNewFile(s.T(), remote, "File3")
 	_ = CommitNewFile(s.T(), remote, "File4")
@@ -354,6 +395,11 @@ func (s *WorktreeSuite) TestPullAfterShallowClone_UntrackedFilesPreserved() {
 
 	remote, err := PlainInit(remoteURL, false)
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := remote.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	_ = CommitNewFile(s.T(), remote, "File1")
 	_ = CommitNewFile(s.T(), remote, "File2")
@@ -366,6 +412,11 @@ func (s *WorktreeSuite) TestPullAfterShallowClone_UntrackedFilesPreserved() {
 		ReferenceName: "master",
 	})
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := repo.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	// Create an untracked file in the cloned worktree.
 	untrackedPath := filepath.Join(repoDir, "untracked.txt")
@@ -503,6 +554,11 @@ func (s *WorktreeSuite) TestCheckoutSymlink() {
 
 	r, err := PlainInit(dir, false)
 	s.NoError(err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := r.Worktree()
 	s.NoError(err)
@@ -561,6 +617,11 @@ func (s *WorktreeSuite) TestCheckoutSparse() {
 func (s *WorktreeSuite) TestCheckoutCRLF() {
 	runTest := func(t *testing.T, autoCRLF string) (result []byte) {
 		r := NewRepositoryWithEmptyWorktree(fixtures.Basic().One())
+		defer func() {
+			if closer, ok := r.Storer.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}()
 
 		cfg, err := r.Config()
 		require.NoError(t, err)
@@ -605,6 +666,11 @@ func (s *WorktreeSuite) TestFilenameNormalization() {
 
 	server, err := PlainClone(s.T().TempDir(), &CloneOptions{URL: url})
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := server.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	filename := "페"
 
@@ -671,6 +737,11 @@ func (s *WorktreeSuite) TestFilenameNormalization() {
 func (s *WorktreeSuite) TestCheckoutSubmodule() {
 	url := "https://github.com/git-fixtures/submodule.git"
 	r := NewRepositoryWithEmptyWorktree(fixtures.ByURL(url).One())
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := r.Worktree()
 	s.NoError(err)
@@ -686,6 +757,11 @@ func (s *WorktreeSuite) TestCheckoutSubmodule() {
 func (s *WorktreeSuite) TestCheckoutSubmoduleInitialized() {
 	url := "https://github.com/git-fixtures/submodule.git"
 	r := s.NewRepository(fixtures.ByURL(url).One())
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := r.Worktree()
 	s.NoError(err)
@@ -704,6 +780,11 @@ func (s *WorktreeSuite) TestCheckoutSubmoduleInitialized() {
 func (s *WorktreeSuite) TestCheckoutRelativePathSubmoduleInitialized() {
 	url := "https://github.com/git-fixtures/submodule.git"
 	r := s.NewRepository(fixtures.ByURL(url).One())
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	// modify the .gitmodules from original one
 	file, err := r.wt.OpenFile(".gitmodules", os.O_WRONLY|os.O_TRUNC, 0o666)
@@ -735,7 +816,11 @@ func (s *WorktreeSuite) TestCheckoutRelativePathSubmoduleInitialized() {
 	s.NoError(err)
 	basicRepo, err := basicSubmodule.Repository()
 	s.NoError(err)
-	defer basicRepo.Close()
+	defer func() {
+		if closer, ok := basicRepo.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	basicRemotes, err := basicRepo.Remotes()
 	s.NoError(err)
 	s.Equal("https://github.com/git-fixtures/basic.git", basicRemotes[0].Config().URLs[0])
@@ -744,7 +829,11 @@ func (s *WorktreeSuite) TestCheckoutRelativePathSubmoduleInitialized() {
 	s.NoError(err)
 	itselfRepo, err := itselfSubmodule.Repository()
 	s.NoError(err)
-	defer itselfRepo.Close()
+	defer func() {
+		if closer, ok := itselfRepo.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	itselfRemotes, err := itselfRepo.Remotes()
 	s.NoError(err)
 	s.Equal("https://github.com/git-fixtures/submodule.git", itselfRemotes[0].Config().URLs[0])
@@ -1053,6 +1142,11 @@ func (s *WorktreeSuite) TestCheckoutCreateInvalidBranch() {
 func (s *WorktreeSuite) TestCheckoutTag() {
 	f := fixtures.ByTag("tags").One()
 	r := NewRepositoryWithEmptyWorktree(f)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	w, err := r.Worktree()
 	s.NoError(err)
 
@@ -1090,6 +1184,11 @@ func (s *WorktreeSuite) TestCheckoutTag() {
 func (s *WorktreeSuite) TestCheckoutTagHash() {
 	f := fixtures.ByTag("tags").One()
 	r := NewRepositoryWithEmptyWorktree(f)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	w, err := r.Worktree()
 	s.NoError(err)
 
@@ -1139,6 +1238,11 @@ func (s *WorktreeSuite) TestCheckoutBisectSubmodules() {
 func (s *WorktreeSuite) testCheckoutBisect(url string) {
 	f := fixtures.ByURL(url).One()
 	r := NewRepositoryWithEmptyWorktree(f)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := r.Worktree()
 	s.NoError(err)
@@ -1460,6 +1564,11 @@ func (s *WorktreeSuite) TestResetKeepConflict() {
 	// Build a repo with two commits that both touch "tracked.txt".
 	r, err := PlainInit(repoDir, false)
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	w, err := r.Worktree()
 	s.Require().NoError(err)
 
@@ -1565,6 +1674,11 @@ func (s *WorktreeSuite) TestResetKeepConflictNotOnSparseExcluded() {
 
 	r, err := PlainInit(repoDir, false)
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	w, err := r.Worktree()
 	s.Require().NoError(err)
 
@@ -1642,6 +1756,11 @@ func (s *WorktreeSuite) TestResetKeepUntrackedOverwrite() {
 
 	r, err := PlainInit(repoDir, false)
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	w, err := r.Worktree()
 	s.Require().NoError(err)
 
@@ -2045,6 +2164,11 @@ func (s *WorktreeSuite) TestSubmodule() {
 
 	r, err := Open(filesystem.NewStorage(gitdir, cache.NewObjectLRUDefault()), fs)
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -2057,6 +2181,11 @@ func (s *WorktreeSuite) TestSubmodule() {
 
 func (s *WorktreeSuite) TestSubmodules() {
 	r := s.NewRepository(fixtures.ByTag("submodule").One())
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -2289,6 +2418,11 @@ func (s *WorktreeSuite) TestAddAbsolutePath() {
 
 	r, err := PlainInit(dir, false)
 	s.NoError(err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := r.Worktree()
 	s.NoError(err)
@@ -2320,6 +2454,11 @@ func (s *WorktreeSuite) TestAddAbsolutePath() {
 func (s *WorktreeSuite) TestAddCRLF() {
 	runTest := func(t *testing.T, autoCRLF string) (result []byte) {
 		r := NewRepositoryWithEmptyWorktree(fixtures.Basic().One())
+		defer func() {
+			if closer, ok := r.Storer.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}()
 
 		cfg, err := r.Config()
 		require.NoError(t, err)
@@ -2392,6 +2531,11 @@ func (s *WorktreeSuite) TestIgnored() {
 func (s *WorktreeSuite) TestExcludedNoGitignore() {
 	f := fixtures.ByTag("empty").One()
 	r := s.NewRepository(f)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	fs := memfs.New()
 	w := &Worktree{
@@ -2567,6 +2711,11 @@ func (s *WorktreeSuite) TestAddSymlink() {
 
 	r, err := PlainInit(dir, false)
 	s.NoError(err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 	err = util.WriteFile(r.wt, "foo", []byte("qux"), 0o644)
 	s.NoError(err)
 	err = r.wt.Symlink("foo", "bar")
@@ -3260,6 +3409,11 @@ func TestAlternatesRepo(t *testing.T) {
 	d, _ := rep1fs.Chroot(GitDirName)
 	rep1, err := Open(filesystem.NewStorage(d, cache.NewObjectLRUDefault()), nil)
 	require.NoError(t, err)
+	defer func() {
+		if closer, ok := rep1.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	// Open 2nd repo.
 	rep2fs, err := fs.Chroot("rep2")
@@ -3271,6 +3425,11 @@ func TestAlternatesRepo(t *testing.T) {
 		})
 	rep2, err := Open(storer, rep2fs)
 	require.NoError(t, err)
+	defer func() {
+		if closer, ok := rep2.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	// Get the HEAD commit from the main repo.
 	h, err := rep1.Head()
@@ -3477,6 +3636,11 @@ func (s *WorktreeSuite) TestGrep() {
 
 	server, err := Clone(memory.NewStorage(), memfs.New(), &CloneOptions{URL: url})
 	s.Require().NoError(err)
+	defer func() {
+		if closer, ok := server.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := server.Worktree()
 	s.Require().NoError(err)
@@ -3580,6 +3744,11 @@ func (s *WorktreeSuite) TestResetLingeringDirectories() {
 
 	repo, err := PlainInit(dir, false)
 	s.NoError(err)
+	defer func() {
+		if closer, ok := repo.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := repo.Worktree()
 	s.NoError(err)
@@ -3625,6 +3794,11 @@ func (s *WorktreeSuite) TestAddAndCommit() {
 
 	repo, err := PlainInit(dir, false)
 	s.NoError(err)
+	defer func() {
+		if closer, ok := repo.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := repo.Worktree()
 	s.NoError(err)
@@ -3667,6 +3841,11 @@ func (s *WorktreeSuite) TestAddAndCommitEmpty() {
 
 	repo, err := PlainInit(dir, false)
 	s.NoError(err)
+	defer func() {
+		if closer, ok := repo.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	w, err := repo.Worktree()
 	s.NoError(err)
@@ -3692,6 +3871,11 @@ func (s *WorktreeSuite) TestLinkedWorktree() {
 		s.Require().NoError(err)
 		repo, err := PlainOpenWithOptions(fs.Root(), nil)
 		s.Require().NoError(err)
+		defer func() {
+			if closer, ok := repo.Storer.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}()
 
 		wt, err := repo.Worktree()
 		s.NoError(err)
@@ -3711,6 +3895,11 @@ func (s *WorktreeSuite) TestLinkedWorktree() {
 		s.Require().NoError(err)
 		repo, err := PlainOpenWithOptions(fs.Root(), nil)
 		s.Require().NoError(err)
+		defer func() {
+			if closer, ok := repo.Storer.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}()
 
 		wt, err := repo.Worktree()
 		s.NoError(err)
@@ -3733,6 +3922,11 @@ func (s *WorktreeSuite) TestLinkedWorktree() {
 		s.Require().NoError(err)
 		repo, err := PlainOpenWithOptions(fs.Root(), nil)
 		s.Require().NoError(err)
+		defer func() {
+			if closer, ok := repo.Storer.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}()
 
 		wt, err := repo.Worktree()
 		s.NoError(err)

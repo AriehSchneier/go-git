@@ -4,6 +4,7 @@ package git
 
 import (
 	"fmt"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,6 +22,11 @@ func TestPlainInitFileMode(t *testing.T) {
 	dir := t.TempDir()
 	r, err := PlainInit(dir, false)
 	require.NoError(t, err)
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	cfg, err := r.Config()
 	require.NoError(t, err)
