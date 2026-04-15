@@ -102,6 +102,11 @@ func (w *Worktree) Add(wt billy.Filesystem, name string, opts ...Option) error {
 		if err != nil {
 			return fmt.Errorf("unable to open repository: %w", err)
 		}
+		defer func() {
+			if closer, ok := r.Storer.(io.Closer); ok {
+				_ = closer.Close()
+			}
+		}()
 
 		ref, err := r.Head()
 		if err != nil {
@@ -142,6 +147,11 @@ func (w *Worktree) Add(wt billy.Filesystem, name string, opts ...Option) error {
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}()
 
 	work, err := r.Worktree()
 	if err != nil {
@@ -229,7 +239,12 @@ func (w *Worktree) Open(wt billy.Filesystem) (*git.Repository, error) {
 	}
 
 	stor := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
-	return git.Open(stor, wt)
+	repo, err := git.Open(stor, wt)
+	if err != nil {
+		_ = stor.Close()
+		return nil, err
+	}
+	return repo, nil
 }
 
 // Init initialises a worktree filesystem, connecting it to an existing

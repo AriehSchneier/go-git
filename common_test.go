@@ -2,6 +2,7 @@ package git
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"testing"
 	"time"
@@ -36,6 +37,19 @@ func (s *BaseSuite) SetupSuite() {
 	s.buildBasicRepository()
 
 	s.cache = make(map[string]*Repository)
+}
+
+func (s *BaseSuite) TearDownSuite() {
+	if s.Repository != nil {
+		if closer, ok := s.Repository.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
+	for _, r := range s.cache {
+		if closer, ok := r.Storer.(io.Closer); ok {
+			_ = closer.Close()
+		}
+	}
 }
 
 // registerTestConfigLoader registers a static ConfigSource plugin with
