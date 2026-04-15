@@ -448,7 +448,12 @@ func PlainOpenWithOptions(path string, o *PlainOpenOptions) (*Repository, error)
 
 	s := filesystem.NewStorage(repositoryFs, cache.NewObjectLRUDefault())
 
-	return Open(s, wt)
+	r, err := Open(s, wt)
+	if err != nil {
+		_ = s.Close()
+		return nil, err
+	}
+	return r, nil
 }
 
 func dotGitToOSFilesystems(path string, detect bool) (dot, wt billy.Filesystem, err error) {

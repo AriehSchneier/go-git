@@ -421,6 +421,7 @@ func (s *RemoteSuite) TestFetchWithPackfileWriter() {
 	fs := s.TemporalFilesystem()
 
 	fss := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = fss.Close() }()
 	mock := &mockPackfileWriter{Storer: fss}
 
 	url := s.GetBasicLocalRepositoryURL()
@@ -553,6 +554,7 @@ func (s *RemoteSuite) TestFetchFastForwardFS() {
 	fs := s.TemporalFilesystem()
 
 	fss := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = fss.Close() }()
 
 	// This exercises `storage.filesystem.Storage.CheckAndSetReference()`.
 	s.testFetchFastForward(fss)
@@ -686,6 +688,7 @@ func (s *RemoteSuite) TestPushContextCanceled() {
 	fs, err := fixtures.ByURL("https://github.com/git-fixtures/tags.git").One().DotGit()
 	s.Require().NoError(err)
 	sto := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = sto.Close() }()
 
 	r := NewRemote(sto, &config.RemoteConfig{
 		Name: DefaultRemoteName,
@@ -896,6 +899,7 @@ func (s *RemoteSuite) TestPushNoErrAlreadyUpToDate() {
 	fs, err := fixtures.Basic().One().DotGit(fixtures.WithTargetDir(s.T().TempDir))
 	s.Require().NoError(err)
 	sto := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = sto.Close() }()
 
 	r := NewRemote(sto, &config.RemoteConfig{
 		Name: DefaultRemoteName,
@@ -912,6 +916,7 @@ func (s *RemoteSuite) TestPushDeleteReference() {
 	fs, err := fixtures.Basic().One().DotGit(fixtures.WithTargetDir(s.T().TempDir))
 	s.Require().NoError(err)
 	sto := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = sto.Close() }()
 
 	r, err := PlainClone(s.T().TempDir(), &CloneOptions{
 		URL:  fs.Root(),
@@ -940,6 +945,7 @@ func (s *RemoteSuite) TestForcePushDeleteReference() {
 	s.Require().NoError(err)
 
 	sto := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = sto.Close() }()
 
 	r, err := PlainClone(s.T().TempDir(), &CloneOptions{
 		URL:  fs.Root(),
@@ -969,6 +975,7 @@ func (s *RemoteSuite) TestPushRejectNonFastForward() {
 	s.Require().NoError(err)
 
 	server := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = server.Close() }()
 
 	r, err := PlainClone(s.T().TempDir(), &CloneOptions{URL: fs.Root(), Bare: true})
 	s.Require().NoError(err)
@@ -997,10 +1004,12 @@ func (s *RemoteSuite) TestPushForce() {
 	dotgit, dotgitErr := f.DotGit()
 	s.Require().NoError(dotgitErr)
 	sto := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
+	defer func() { _ = sto.Close() }()
 
 	dstFs, dstErr := f.DotGit(fixtures.WithTargetDir(s.T().TempDir))
 	s.Require().NoError(dstErr)
 	dstSto := filesystem.NewStorage(dstFs, cache.NewObjectLRUDefault())
+	defer func() { _ = dstSto.Close() }()
 
 	r := NewRemote(sto, &config.RemoteConfig{
 		Name: DefaultRemoteName,
@@ -1026,10 +1035,12 @@ func (s *RemoteSuite) TestPushForceWithOption() {
 	dotgit, dotgitErr := f.DotGit()
 	s.Require().NoError(dotgitErr)
 	sto := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
+	defer func() { _ = sto.Close() }()
 
 	dstFs, dstErr := f.DotGit(fixtures.WithTargetDir(s.T().TempDir))
 	s.Require().NoError(dstErr)
 	dstSto := filesystem.NewStorage(dstFs, cache.NewObjectLRUDefault())
+	defer func() { _ = dstSto.Close() }()
 
 	r := NewRemote(sto, &config.RemoteConfig{
 		Name: DefaultRemoteName,
@@ -1082,10 +1093,12 @@ func (s *RemoteSuite) TestPushForceWithLease_success() {
 		dotgit, dotgitErr := f.DotGit()
 		s.Require().NoError(dotgitErr)
 		sto := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
+		defer func() { _ = sto.Close() }()
 
 		dstFs, dstErr := f.DotGit(fixtures.WithTargetDir(s.T().TempDir))
 		s.Require().NoError(dstErr)
 		dstSto := filesystem.NewStorage(dstFs, cache.NewObjectLRUDefault())
+		defer func() { _ = dstSto.Close() }()
 
 		newCommit := plumbing.NewHashReference(
 			"refs/heads/branch", plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9"),
@@ -1147,6 +1160,7 @@ func (s *RemoteSuite) TestPushForceWithLease_failure() {
 		dotgit, dotgitErr := f.DotGit()
 		s.Require().NoError(dotgitErr)
 		sto := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
+		defer func() { _ = sto.Close() }()
 		s.NoError(sto.SetReference(
 			plumbing.NewHashReference(
 				"refs/heads/branch", plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9"),
@@ -1156,6 +1170,7 @@ func (s *RemoteSuite) TestPushForceWithLease_failure() {
 		dstFs, dstErr := f.DotGit(fixtures.WithTargetDir(s.T().TempDir))
 		s.Require().NoError(dstErr)
 		dstSto := filesystem.NewStorage(dstFs, cache.NewObjectLRUDefault())
+		defer func() { _ = dstSto.Close() }()
 		s.NoError(dstSto.SetReference(
 			plumbing.NewHashReference(
 				"refs/heads/branch", plumbing.NewHash("ad7897c0fb8e7d9a9ba41fa66072cf06095a6cfc"),
@@ -1541,6 +1556,7 @@ func (s *RemoteSuite) TestUseRefDeltas() {
 	fs, err := fixtures.ByURL("https://github.com/git-fixtures/tags.git").One().DotGit()
 	s.Require().NoError(err)
 	sto := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = sto.Close() }()
 
 	r := NewRemote(sto, &config.RemoteConfig{
 		Name: DefaultRemoteName,
@@ -1561,10 +1577,12 @@ func (s *RemoteSuite) TestPushRequireRemoteRefs() {
 	dotgit, dotgitErr := f.DotGit()
 	s.Require().NoError(dotgitErr)
 	sto := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
+	defer func() { _ = sto.Close() }()
 
 	dstFs, dstErr := f.DotGit(fixtures.WithTargetDir(s.T().TempDir))
 	s.Require().NoError(dstErr)
 	dstSto := filesystem.NewStorage(dstFs, cache.NewObjectLRUDefault())
+	defer func() { _ = dstSto.Close() }()
 
 	url := dstFs.Root()
 	r := NewRemote(sto, &config.RemoteConfig{

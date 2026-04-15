@@ -818,6 +818,7 @@ func TestFailSafeUnsupportedStorage(t *testing.T) {
 		dotgit, dotgitErr := f.DotGit(fixtures.WithMemFS())
 		require.NoError(t, dotgitErr)
 		st := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
+		defer func() { _ = st.Close() }()
 
 		wrapped := &sha1OnlyStorage{st}
 		_, okGetter := storage.Storer(wrapped).(xstorage.ExtensionChecker)

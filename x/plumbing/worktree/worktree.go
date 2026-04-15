@@ -231,7 +231,12 @@ func (w *Worktree) Open(wt billy.Filesystem) (*git.Repository, error) {
 	}
 
 	stor := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
-	return git.Open(stor, wt)
+	repo, err := git.Open(stor, wt)
+	if err != nil {
+		_ = stor.Close()
+		return nil, err
+	}
+	return repo, nil
 }
 
 // Init initialises a worktree filesystem, connecting it to an existing
