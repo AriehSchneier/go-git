@@ -20,6 +20,7 @@ const (
 	beginpgp       string = "-----BEGIN PGP SIGNATURE-----"
 	endpgp         string = "-----END PGP SIGNATURE-----"
 	headerpgp      string = "gpgsig"
+	headerpgp256   string = "gpgsig-sha256"
 	headerencoding string = "encoding"
 
 	// https://github.com/git/git/blob/bcb6cae2966cc407ca1afc77413b3ef11103c175/Documentation/gitformat-signature.txt#L153
@@ -54,6 +55,10 @@ type Commit struct {
 	MergeTag string
 	// Signature is the cryptographic signature of the commit (e.g. SSH, X.509).
 	Signature string
+	// SignatureSHA256 is the SHA-256 cryptographic signature of the commit,
+	// stored under the "gpgsig-sha256" header. It may be present alongside
+	// Signature on commits produced in hash-algorithm compatibility mode.
+	SignatureSHA256 string
 	// Message is the commit message, contains arbitrary text.
 	Message string
 	// TreeHash is the hash of the root tree of the commit.
@@ -248,6 +253,7 @@ func (c *Commit) Decode(o plumbing.EncodedObject) (err error) {
 	var message bool
 	var mergetag bool
 	var pgpsig bool
+	var pgpsig256 bool
 	var msgbuf bytes.Buffer
 	var extraheader *ExtraHeader
 	for {
@@ -272,6 +278,15 @@ func (c *Commit) Decode(o plumbing.EncodedObject) (err error) {
 				continue
 			}
 			pgpsig = false
+		}
+
+		if pgpsig256 {
+			if len(line) > 0 && line[0] == ' ' {
+				line = bytes.TrimLeft(line, " ")
+				c.SignatureSHA256 += string(line)
+				continue
+			}
+			pgpsig256 = false
 		}
 
 		if extraheader != nil {
@@ -316,6 +331,9 @@ func (c *Commit) Decode(o plumbing.EncodedObject) (err error) {
 			case headerpgp:
 				c.Signature += string(data) + "\n"
 				pgpsig = true
+			case headerpgp256:
+				c.SignatureSHA256 += string(data) + "\n"
+				pgpsig256 = true
 			default:
 				h, maybecontinued := parseExtraHeader(originalLine)
 				if maybecontinued {
@@ -419,6 +437,18 @@ func (c *Commit) encode(o plumbing.EncodedObject, includeSig bool) (err error) {
 		// added after this section, as it will be added when the message is
 		// printed.
 		signature := strings.TrimSuffix(c.Signature, "\n")
+		lines := strings.Split(signature, "\n")
+		if _, err = fmt.Fprint(w, strings.Join(lines, "\n ")); err != nil {
+			return err
+		}
+	}
+
+	if c.SignatureSHA256 != "" && includeSig {
+		if _, err = fmt.Fprint(w, "\n"+headerpgp256+" "); err != nil {
+			return err
+		}
+
+		signature := strings.TrimSuffix(c.SignatureSHA256, "\n")
 		lines := strings.Split(signature, "\n")
 		if _, err = fmt.Fprint(w, strings.Join(lines, "\n ")); err != nil {
 			return err

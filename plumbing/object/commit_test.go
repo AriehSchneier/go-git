@@ -373,11 +373,7 @@ func (s *SuiteCommit) TestLongCommitMessageSerialization() {
 }
 
 func (s *SuiteCommit) TestPGPSignatureSerialization() {
-	encoded := &plumbing.MemoryObject{}
-	decoded := &Commit{}
-	commit := *s.Commit
-
-	pgpsignature := `-----BEGIN PGP SIGNATURE-----
+	pgpsig1 := `-----BEGIN PGP SIGNATURE-----
 
 iQEcBAABAgAGBQJTZbQlAAoJEF0+sviABDDrZbQH/09PfE51KPVPlanr6q1v4/Ut
 LQxfojUWiLQdg2ESJItkcuweYg+kc3HCyFejeDIBw9dpXt00rY26p05qrpnG+85b
@@ -388,62 +384,81 @@ RUysgqjcpT8+iQM1PblGfHR4XAhuOqN5Fx06PSaFZhqvWFezJ28/CLyX5q+oIVk=
 =EFTF
 -----END PGP SIGNATURE-----
 `
-	commit.Signature = pgpsignature
+	pgpsig256 := `-----BEGIN PGP SIGNATURE-----
 
-	err := commit.Encode(encoded)
-	s.NoError(err)
+iHUEABYKAB0WIQTMqU0ycQ3f6g3PMoWMmmmF4LuV8QUCYGebVwAKCRCMmmmF4LuV
+8VtyAP9LbuXAhtK6FQqOjKybBwlV70rLcXVP24ubDuz88VVwSgD+LuObsasWq6/U
+TssDKHUR2taa53bQYjkZQBpvvwOrLgc=
+=YQUf
+-----END PGP SIGNATURE-----
+`
+	broken := beginpgp + "\nsome\ntrash\n" + endpgp + "text\n"
 
-	err = decoded.Decode(encoded)
-	s.NoError(err)
-	s.Equal(pgpsignature, decoded.Signature)
+	cases := []struct {
+		name       string
+		sig        string
+		sig256     string
+		authorName string
+	}{
+		{name: "sha1 only", sig: pgpsig1},
+		{name: "sha256 only", sig256: pgpsig256},
+		{name: "sha1 and sha256", sig: pgpsig1, sig256: pgpsig256},
+		// Regression: a leading empty line previously caused "index out of
+		// range" when parsing the signature.
+		{name: "sha1 with leading empty line", sig: "\n" + pgpsig1},
+		{name: "sha256 with leading empty line", sig256: "\n" + pgpsig256},
+		{name: "beginpgp marker in author name is not parsed as signature", authorName: beginpgp},
+		{name: "garbage between begin and end markers round-trips", sig: broken},
+	}
 
-	// signature with extra empty line, it caused "index out of range" when
-	// parsing it
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			commit := *s.Commit
+			commit.Signature = tc.sig
+			commit.SignatureSHA256 = tc.sig256
+			if tc.authorName != "" {
+				commit.Author.Name = tc.authorName
+			}
 
-	pgpsignature2 := "\n" + pgpsignature
+			encoded := &plumbing.MemoryObject{}
+			s.NoError(commit.Encode(encoded))
 
-	commit.Signature = pgpsignature2
-	encoded = &plumbing.MemoryObject{}
-	decoded = &Commit{}
+			payload := readAll(s.T(), encoded)
+			if tc.sig != "" {
+				s.Contains(payload, "\n"+headerpgp+" ")
+			}
+			if tc.sig256 != "" {
+				s.Contains(payload, "\n"+headerpgp256+" ")
+			}
 
-	err = commit.Encode(encoded)
-	s.NoError(err)
+			decoded := &Commit{}
+			s.NoError(decoded.Decode(encoded))
+			s.Equal(tc.sig, decoded.Signature)
+			s.Equal(tc.sig256, decoded.SignatureSHA256)
+			if tc.authorName != "" {
+				s.Equal(tc.authorName, decoded.Author.Name)
+			}
 
-	err = decoded.Decode(encoded)
-	s.NoError(err)
-	s.Equal(pgpsignature2, decoded.Signature)
+			if tc.sig != "" || tc.sig256 != "" {
+				stripped := &plumbing.MemoryObject{}
+				s.NoError(commit.EncodeWithoutSignature(stripped))
+				s.NotContains(readAll(s.T(), stripped), "gpgsig")
+			}
+		})
+	}
+}
 
-	// signature in author name
-
-	commit.Signature = ""
-	commit.Author.Name = beginpgp
-	encoded = &plumbing.MemoryObject{}
-	decoded = &Commit{}
-
-	err = commit.Encode(encoded)
-	s.NoError(err)
-
-	err = decoded.Decode(encoded)
-	s.NoError(err)
-	s.Equal("", decoded.Signature)
-	s.Equal(beginpgp, decoded.Author.Name)
-
-	// broken signature
-
-	commit.Signature = beginpgp + "\n" +
-		"some\n" +
-		"trash\n" +
-		endpgp +
-		"text\n"
-	encoded = &plumbing.MemoryObject{}
-	decoded = &Commit{}
-
-	err = commit.Encode(encoded)
-	s.NoError(err)
-
-	err = decoded.Decode(encoded)
-	s.NoError(err)
-	s.Equal(commit.Signature, decoded.Signature)
+func readAll(t *testing.T, o *plumbing.MemoryObject) string {
+	t.Helper()
+	r, err := o.Reader()
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
 }
 
 func (s *SuiteCommit) TestStat() {
@@ -547,30 +562,33 @@ func (s *SuiteCommit) TestMalformedHeader() {
 }
 
 func (s *SuiteCommit) TestEncodeWithoutSignature() {
-	// Similar to TestString since no signature
-	encoded := &plumbing.MemoryObject{}
-	err := s.Commit.EncodeWithoutSignature(encoded)
-	s.NoError(err)
-	er, err := encoded.Reader()
-	s.NoError(err)
-	payload, err := io.ReadAll(er)
-	s.NoError(err)
+	tests := []struct {
+		name      string
+		commitRaw string
+		expected  string
+	}{
+		{
+			name: "commit without signature",
+			commitRaw: `tree eba74343e2f15d62adedfd8c883ee0262b5c8021
+parent 35e85108805c84807bc66a02d91535e1e24b38b9
+parent a5b8b09e2f8fcb0bb99d3ccb0958157b40890d69
+author Máximo Cuadros Ortiz <mcuadros@gmail.com> 1427802494 +0200
+committer Máximo Cuadros Ortiz <mcuadros@gmail.com> 1427802494 +0200
 
-	s.Equal(""+
-		"tree eba74343e2f15d62adedfd8c883ee0262b5c8021\n"+
-		"parent 35e85108805c84807bc66a02d91535e1e24b38b9\n"+
-		"parent a5b8b09e2f8fcb0bb99d3ccb0958157b40890d69\n"+
-		"author Máximo Cuadros Ortiz <mcuadros@gmail.com> 1427802494 +0200\n"+
-		"committer Máximo Cuadros Ortiz <mcuadros@gmail.com> 1427802494 +0200\n"+
-		"\n"+
-		"Merge branch 'master' of github.com:tyba/git-fixture\n",
-		string(payload))
-}
+Merge branch 'master' of github.com:tyba/git-fixture
+`,
+			expected: `tree eba74343e2f15d62adedfd8c883ee0262b5c8021
+parent 35e85108805c84807bc66a02d91535e1e24b38b9
+parent a5b8b09e2f8fcb0bb99d3ccb0958157b40890d69
+author Máximo Cuadros Ortiz <mcuadros@gmail.com> 1427802494 +0200
+committer Máximo Cuadros Ortiz <mcuadros@gmail.com> 1427802494 +0200
 
-func (s *SuiteCommit) TestEncodeWithoutSignatureJujutsu() {
-	object := &plumbing.MemoryObject{}
-	object.SetType(plumbing.CommitObject)
-	object.Write([]byte(`tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+Merge branch 'master' of github.com:tyba/git-fixture
+`,
+		},
+		{
+			name: "commit with change-id and gpgsig",
+			commitRaw: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
 author John Doe <john.doe@example.com> 1755280730 -0700
 committer John Doe <john.doe@example.com> 1755280730 -0700
 change-id wxmuynokkzxmuwxwvnnpnptoyuypknwv
@@ -585,21 +603,8 @@ gpgsig -----BEGIN PGP SIGNATURE-----
 initial commit
 
 Change-Id: I6a6a696432d51cbff02d53234ccaca6b151afc34
-`))
-
-	commit, err := DecodeCommit(s.Storer, object)
-	s.NoError(err)
-
-	// Similar to TestString since no signature
-	encoded := &plumbing.MemoryObject{}
-	err = commit.EncodeWithoutSignature(encoded)
-	s.NoError(err)
-	er, err := encoded.Reader()
-	s.NoError(err)
-	payload, err := io.ReadAll(er)
-	s.NoError(err)
-
-	s.Equal(`tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+`,
+			expected: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
 author John Doe <john.doe@example.com> 1755280730 -0700
 committer John Doe <john.doe@example.com> 1755280730 -0700
 change-id wxmuynokkzxmuwxwvnnpnptoyuypknwv
@@ -607,7 +612,92 @@ change-id wxmuynokkzxmuwxwvnnpnptoyuypknwv
 initial commit
 
 Change-Id: I6a6a696432d51cbff02d53234ccaca6b151afc34
-`, string(payload))
+`,
+		},
+		{
+			name: "gpgsig-sha256",
+			commitRaw: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+change-id wxmuynokkzxmuwxwvnnpnptoyuypknwv
+gpgsig-sha256 -----BEGIN PGP SIGNATURE-----
+ 
+ iHUEABMIAB0WIQSZpnSpGKbQbDaLe5iiNQl48cTY5gUCaJ91XQAKCRCiNQl48cTY
+ 5vCYAP9Sf1yV9oUviRIxEA+4rsGIx0hI6kqFajJ/3TtBjyCTggD+PFnKOxdXeFL2
+ GLwcCzFIsmQmkLxuLypsg+vueDSLpsM=
+ =VucY
+ -----END PGP SIGNATURE-----
+
+initial commit
+
+Change-Id: I6a6a696432d51cbff02d53234ccaca6b151afc34
+`,
+			expected: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+change-id wxmuynokkzxmuwxwvnnpnptoyuypknwv
+
+initial commit
+
+Change-Id: I6a6a696432d51cbff02d53234ccaca6b151afc34
+`,
+		},
+		{
+			name: "gpgsig + gpgsig-sha256",
+			commitRaw: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+change-id wxmuynokkzxmuwxwvnnpnptoyuypknwv
+gpgsig -----BEGIN PGP SIGNATURE-----
+ 
+ iHUEABMIAB0WIQSZpnSpGKbQbDaLe5iiNQl48cTY5gUCaJ91XQAKCRCiNQl48cTY
+ GLwcCzFIsmQmkLxuLypsg+vueDSLpsM=
+ =VucY
+ -----END PGP SIGNATURE-----
+gpgsig-sha256 -----BEGIN PGP SIGNATURE-----
+ 
+ iHUEABMIAB0WIQSZpnSpGKbQbDaLe5iiNQl48cTY5gUCaJ91XQAKCRCiNQl48cTY
+ =VucY
+ -----END PGP SIGNATURE-----
+
+initial commit
+
+Change-Id: I6a6a696432d51cbff02d53234ccaca6b151afc34
+`,
+			expected: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+change-id wxmuynokkzxmuwxwvnnpnptoyuypknwv
+
+initial commit
+
+Change-Id: I6a6a696432d51cbff02d53234ccaca6b151afc34
+`,
+		},
+	}
+
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			obj := &plumbing.MemoryObject{}
+			obj.SetType(plumbing.CommitObject)
+			obj.Write([]byte(tc.commitRaw))
+
+			commit, err := DecodeCommit(s.Storer, obj)
+			s.Require().NoError(err)
+
+			encoded := &plumbing.MemoryObject{}
+			err = commit.EncodeWithoutSignature(encoded)
+			s.NoError(err)
+
+			er, err := encoded.Reader()
+			s.NoError(err)
+
+			payload, err := io.ReadAll(er)
+			s.NoError(err)
+
+			s.Equal(tc.expected, string(payload))
+		})
+	}
 }
 
 func (s *SuiteCommit) TestEncodeExtraHeaders() {
