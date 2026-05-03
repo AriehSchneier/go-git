@@ -287,6 +287,7 @@ change
 		err = newCommit.Decode(obj)
 		s.NoError(err)
 		commit.Hash = obj.Hash()
+		commit.src = obj
 		s.Equal(commit, newCommit)
 	}
 }
@@ -565,6 +566,7 @@ func (s *SuiteCommit) TestEncodeWithoutSignature() {
 	tests := []struct {
 		name      string
 		commitRaw string
+		mutate    func(*Commit)
 		expected  string
 	}{
 		{
@@ -674,6 +676,95 @@ initial commit
 Change-Id: I6a6a696432d51cbff02d53234ccaca6b151afc34
 `,
 		},
+		{
+			name: "non-canonical gpgsig-prefixed extra header is preserved",
+			commitRaw: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+gpgsig-key-id ABCDEF0123456789
+gpgsig -----BEGIN PGP SIGNATURE-----
+ sigline1
+ -----END PGP SIGNATURE-----
+
+initial commit
+`,
+			expected: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+gpgsig-key-id ABCDEF0123456789
+
+initial commit
+`,
+		},
+		{
+			name: "raw bytes preserved when only Signature is mutated",
+			commitRaw: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+gpgsig -----BEGIN PGP SIGNATURE-----
+ sigline1
+ -----END PGP SIGNATURE-----
+gpgsig-sha256 -----BEGIN PGP SIGNATURE-----
+ sha256line1
+ -----END PGP SIGNATURE-----
+
+initial commit
+`,
+			mutate: func(c *Commit) {
+				c.Signature = "different signature value"
+				c.SignatureSHA256 = "different sha256 sig"
+			},
+			expected: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+
+initial commit
+`,
+		},
+		{
+			name: "timezone-only change triggers struct-encode",
+			commitRaw: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+gpgsig -----BEGIN PGP SIGNATURE-----
+ sigline1
+ -----END PGP SIGNATURE-----
+
+initial commit
+`,
+			mutate: func(c *Commit) {
+				tz := time.FixedZone("CEST", 2*60*60)
+				c.Author.When = c.Author.When.In(tz)
+				c.Committer.When = c.Committer.When.In(tz)
+			},
+			expected: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 +0200
+committer John Doe <john.doe@example.com> 1755280730 +0200
+
+initial commit
+`,
+		},
+		{
+			name: "field mutation triggers struct-encode",
+			commitRaw: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+gpgsig -----BEGIN PGP SIGNATURE-----
+ sigline1
+ -----END PGP SIGNATURE-----
+
+initial commit
+`,
+			mutate: func(c *Commit) {
+				c.Message = "rewritten message\n"
+			},
+			expected: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
+author John Doe <john.doe@example.com> 1755280730 -0700
+committer John Doe <john.doe@example.com> 1755280730 -0700
+
+rewritten message
+`,
+		},
 	}
 
 	for _, tc := range tests {
@@ -684,6 +775,10 @@ Change-Id: I6a6a696432d51cbff02d53234ccaca6b151afc34
 
 			commit, err := DecodeCommit(s.Storer, obj)
 			s.Require().NoError(err)
+
+			if tc.mutate != nil {
+				tc.mutate(commit)
+			}
 
 			encoded := &plumbing.MemoryObject{}
 			err = commit.EncodeWithoutSignature(encoded)
