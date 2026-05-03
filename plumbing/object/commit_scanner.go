@@ -29,7 +29,7 @@ type commitScanner struct {
 	// decoded, subsequent occurrences are silently dropped (matches
 	// upstream's find_commit_header / first-wins semantics).
 	sawTree, sawAuthor, sawCommitter bool
-	sawEncoding, sawMergetag         bool
+	sawEncoding                      bool
 	sawPgp, sawPgp256                bool
 
 	// extra is the multi-line ExtraHeader currently being assembled.
@@ -207,14 +207,6 @@ func scanHeaders(s *commitScanner) (commitState, error) {
 			s.c.Encoding = MessageEncoding(data)
 			s.sawEncoding = true
 		}
-	case headermergetag:
-		if s.sawMergetag {
-			next = scanSkipCont
-		} else {
-			s.c.MergeTag += string(data) + "\n"
-			s.sawMergetag = true
-			next = scanMergetagCont
-		}
 	case headerpgp:
 		if s.sawPgp {
 			next = scanSkipCont
@@ -247,14 +239,12 @@ func scanHeaders(s *commitScanner) (commitState, error) {
 	return next, nil
 }
 
-// scanMergetagCont, scanPgpCont, scanPgp256Cont accumulate continuation
-// lines for the matching first-wins header. Continuations strip exactly one
+// scanPgpCont and scanPgp256Cont accumulate continuation lines for the
+// matching first-wins signature header. Continuations strip exactly one
 // leading space, mirroring upstream's `line + 1` (commit.c:1509). The first
 // non-continuation line is pushed back so scanHeaders can dispatch it.
-func scanMergetagCont(s *commitScanner) (commitState, error) {
-	return continuationCont(s, &s.c.MergeTag, scanMergetagCont)
-}
-
+// Mergetag continuations go through scanExtraCont because mergetag is now
+// modelled as an entry in ExtraHeaders.
 func scanPgpCont(s *commitScanner) (commitState, error) {
 	return continuationCont(s, &s.c.Signature, scanPgpCont)
 }

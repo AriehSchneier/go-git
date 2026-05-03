@@ -24,11 +24,6 @@ const (
 	headerpgp256   string = "gpgsig-sha256"
 	headerencoding string = "encoding"
 
-	// https://github.com/git/git/blob/bcb6cae2966cc407ca1afc77413b3ef11103c175/Documentation/gitformat-signature.txt#L153
-	// When a merge commit is created from a signed tag, the tag is embedded in
-	// the commit with the "mergetag" header.
-	headermergetag string = "mergetag"
-
 	defaultUtf8CommitMessageEncoding MessageEncoding = "UTF-8"
 )
 
@@ -56,9 +51,6 @@ type Commit struct {
 	// Committer is the one performing the commit, might be different from
 	// Author.
 	Committer Signature
-	// MergeTag is the embedded tag object when a merge commit is created by
-	// merging a signed tag.
-	MergeTag string
 	// Signature is the cryptographic signature of the commit (e.g. SSH, X.509).
 	Signature string
 	// SignatureSHA256 is the SHA-256 cryptographic signature of the commit,
@@ -328,7 +320,6 @@ func (c *Commit) matchesSource() bool {
 	return c.Hash == fresh.Hash &&
 		signatureEqual(c.Author, fresh.Author) &&
 		signatureEqual(c.Committer, fresh.Committer) &&
-		c.MergeTag == fresh.MergeTag &&
 		c.Message == fresh.Message &&
 		c.TreeHash == fresh.TreeHash &&
 		c.Encoding == fresh.Encoding &&
@@ -409,7 +400,7 @@ func isSignatureHeader(line []byte) bool {
 func isStandardHeader(key string) bool {
 	switch key {
 	case "tree", "parent", "author", "committer",
-		headerencoding, headermergetag, headerpgp, headerpgp256:
+		headerencoding, headerpgp, headerpgp256:
 		return true
 	}
 	return false
@@ -448,22 +439,6 @@ func (c *Commit) encode(o plumbing.EncodedObject, includeSig bool) (err error) {
 
 	if err = c.Committer.Encode(w); err != nil {
 		return err
-	}
-
-	if c.MergeTag != "" {
-		if _, err = fmt.Fprint(w, "\n"+headermergetag+" "); err != nil {
-			return err
-		}
-
-		// Split tag information lines and re-write with a left padding and
-		// newline. Use join for this so it's clear that a newline should not be
-		// added after this section. The newline will be added either as part of
-		// the PGP signature or the commit message.
-		mergetag := strings.TrimSuffix(c.MergeTag, "\n")
-		lines := strings.Split(mergetag, "\n")
-		if _, err = fmt.Fprint(w, strings.Join(lines, "\n ")); err != nil {
-			return err
-		}
 	}
 
 	if string(c.Encoding) != "" && c.Encoding != defaultUtf8CommitMessageEncoding {

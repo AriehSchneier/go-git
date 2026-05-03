@@ -262,7 +262,9 @@ change
 				plumbing.NewHash("f000000000000000000000000000000000000002"),
 				plumbing.NewHash("f000000000000000000000000000000000000003"),
 			},
-			MergeTag: tag,
+			ExtraHeaders: []ExtraHeader{
+				{Key: "mergetag", Value: strings.TrimRight(tag, "\n")},
+			},
 			Encoding: defaultUtf8CommitMessageEncoding,
 		},
 		{
@@ -274,7 +276,9 @@ change
 				plumbing.NewHash("f000000000000000000000000000000000000002"),
 				plumbing.NewHash("f000000000000000000000000000000000000003"),
 			},
-			MergeTag:  tag,
+			ExtraHeaders: []ExtraHeader{
+				{Key: "mergetag", Value: strings.TrimRight(tag, "\n")},
+			},
 			Signature: pgpsignature,
 			Encoding:  defaultUtf8CommitMessageEncoding,
 		},
@@ -700,6 +704,22 @@ func (s *SuiteCommit) TestDecodeFirstOccurrenceWins() {
 				s.Equal("firstline\nmorefirst\n", c.SignatureSHA256)
 			},
 		},
+		{
+			// Octopus signed merge: every mergetag header survives as
+			// its own ExtraHeader entry. mergetag is just an extra in
+			// upstream's data model — there is no dedicated field.
+			name: "multiple mergetag headers each become an ExtraHeader",
+			raw: "tree " + treeA + "\nauthor " + identAuthor +
+				"\ncommitter " + identCommit +
+				"\nmergetag tag-one\n line1\n line2\n" +
+				"mergetag tag-two\n only-line\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal([]ExtraHeader{
+					{Key: "mergetag", Value: "tag-one\nline1\nline2"},
+					{Key: "mergetag", Value: "tag-two\nonly-line"},
+				}, c.ExtraHeaders)
+			},
+		},
 	}
 
 	for _, tc := range cases {
@@ -938,6 +958,10 @@ rewritten message
 `,
 		},
 		{
+			// mergetag is intentionally preserved here: in upstream Git
+			// it is just another extra header (not in
+			// standard_header_field), so go-git keeps any "mergetag"
+			// entry in ExtraHeaders rather than filtering it out.
 			name: "standard-keyed ExtraHeaders are dropped on encode",
 			commitRaw: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
 author John Doe <john.doe@example.com> 1755280730 -0700
@@ -962,6 +986,7 @@ initial commit
 			expected: `tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904
 author John Doe <john.doe@example.com> 1755280730 -0700
 committer John Doe <john.doe@example.com> 1755280730 -0700
+mergetag fake mergetag
 x-real-extra kept
 
 rewritten message
