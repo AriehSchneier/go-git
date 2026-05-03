@@ -544,6 +544,178 @@ func (s *SuiteCommit) TestPatchCancel() {
 	s.ErrorContains(err, "operation canceled")
 }
 
+func (s *SuiteCommit) TestDecodeRequiresTreeFirst() {
+	const (
+		validTree   = "eba74343e2f15d62adedfd8c883ee0262b5c8021"
+		validParent = "35e85108805c84807bc66a02d91535e1e24b38b9"
+		validIdent  = "Foo <foo@example.local> 1427802494 +0200"
+	)
+
+	cases := []struct {
+		name string
+		raw  string
+	}{
+		{
+			name: "missing tree",
+			raw:  "author " + validIdent + "\ncommitter " + validIdent + "\n\nmsg\n",
+		},
+		{
+			name: "parent before tree",
+			raw:  "parent " + validParent + "\ntree " + validTree + "\nauthor " + validIdent + "\ncommitter " + validIdent + "\n\nmsg\n",
+		},
+		{
+			name: "extra header before tree",
+			raw:  "x-extra hi\ntree " + validTree + "\nauthor " + validIdent + "\ncommitter " + validIdent + "\n\nmsg\n",
+		},
+		{
+			name: "empty",
+			raw:  "",
+		},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			obj := &plumbing.MemoryObject{}
+			obj.SetType(plumbing.CommitObject)
+			_, err := obj.Write([]byte(tc.raw))
+			s.NoError(err)
+
+			err = (&Commit{}).Decode(obj)
+			s.ErrorIs(err, ErrMalformedCommit)
+		})
+	}
+}
+
+func (s *SuiteCommit) TestDecodeFirstOccurrenceWins() {
+	const (
+		treeA       = "eba74343e2f15d62adedfd8c883ee0262b5c8021"
+		treeB       = "0000000000000000000000000000000000000001"
+		parentA     = "35e85108805c84807bc66a02d91535e1e24b38b9"
+		parentB     = "a5b8b09e2f8fcb0bb99d3ccb0958157b40890d69"
+		parentC     = "0000000000000000000000000000000000000002"
+		identA      = "Alice <alice@example.local> 1427802494 +0200"
+		identB      = "Bob <bob@example.local> 1427802495 +0200"
+		identAuthor = "Author Name <author@example.local> 1500000000 +0000"
+		identCommit = "Commit Name <commit@example.local> 1500000001 +0000"
+	)
+
+	cases := []struct {
+		name   string
+		raw    string
+		assert func(*Commit)
+	}{
+		{
+			name: "duplicate tree drops the second",
+			raw: "tree " + treeA + "\ntree " + treeB +
+				"\nauthor " + identAuthor + "\ncommitter " + identCommit + "\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal(treeA, c.TreeHash.String())
+			},
+		},
+		{
+			name: "duplicate author drops the second",
+			raw: "tree " + treeA + "\nauthor " + identA + "\nauthor " + identB +
+				"\ncommitter " + identCommit + "\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal("Alice", c.Author.Name)
+			},
+		},
+		{
+			name: "duplicate committer drops the second",
+			raw: "tree " + treeA + "\nauthor " + identAuthor +
+				"\ncommitter " + identA + "\ncommitter " + identB + "\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal("Alice", c.Committer.Name)
+			},
+		},
+		{
+			name: "parent after author is dropped",
+			raw: "tree " + treeA + "\nparent " + parentA +
+				"\nauthor " + identAuthor + "\nparent " + parentC +
+				"\ncommitter " + identCommit + "\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal([]plumbing.Hash{plumbing.NewHash(parentA)}, c.ParentHashes)
+			},
+		},
+		{
+			name: "parent interleaved with extras is dropped",
+			raw: "tree " + treeA + "\nparent " + parentA + "\nparent " + parentB +
+				"\nx-other thing\nparent " + parentC +
+				"\nauthor " + identAuthor + "\ncommitter " + identCommit + "\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal([]plumbing.Hash{
+					plumbing.NewHash(parentA),
+					plumbing.NewHash(parentB),
+				}, c.ParentHashes)
+			},
+		},
+		{
+			name: "missing committer is allowed (zero-valued)",
+			raw: "tree " + treeA + "\nauthor " + identAuthor +
+				"\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal("Author Name", c.Author.Name)
+				s.Empty(c.Committer.Name)
+			},
+		},
+		{
+			name: "encoding between author and committer drops committer",
+			raw: "tree " + treeA + "\nauthor " + identAuthor +
+				"\nencoding latin-1\ncommitter " + identCommit + "\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal("Author Name", c.Author.Name)
+				s.Equal(MessageEncoding("latin-1"), c.Encoding)
+				// committer was not at its canonical position
+				// (immediately after author) so it is dropped, matching
+				// upstream's parse_commit_date returning 0 and the
+				// subsequent standard_header_field filter.
+				s.Empty(c.Committer.Name)
+			},
+		},
+		{
+			name: "author out of canonical position is dropped",
+			raw: "tree " + treeA + "\nencoding latin-1\nauthor " + identAuthor +
+				"\ncommitter " + identCommit + "\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal(MessageEncoding("latin-1"), c.Encoding)
+				s.Empty(c.Author.Name)
+				s.Empty(c.Committer.Name)
+			},
+		},
+		{
+			name: "duplicate gpgsig drops the second and its continuations",
+			raw: "tree " + treeA + "\nauthor " + identAuthor +
+				"\ncommitter " + identCommit +
+				"\ngpgsig firstline\n morefirst\ngpgsig secondline\n moresecond\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal("firstline\nmorefirst\n", c.Signature)
+			},
+		},
+		{
+			name: "duplicate gpgsig-sha256 drops the second and its continuations",
+			raw: "tree " + treeA + "\nauthor " + identAuthor +
+				"\ncommitter " + identCommit +
+				"\ngpgsig-sha256 firstline\n morefirst\ngpgsig-sha256 secondline\n moresecond\n\nmsg\n",
+			assert: func(c *Commit) {
+				s.Equal("firstline\nmorefirst\n", c.SignatureSHA256)
+			},
+		},
+	}
+
+	for _, tc := range cases {
+		s.Run(tc.name, func() {
+			obj := &plumbing.MemoryObject{}
+			obj.SetType(plumbing.CommitObject)
+			_, err := obj.Write([]byte(tc.raw))
+			s.NoError(err)
+
+			c := &Commit{}
+			s.Require().NoError(c.Decode(obj))
+			tc.assert(c)
+		})
+	}
+}
+
 func (s *SuiteCommit) TestMalformedHeader() {
 	encoded := &plumbing.MemoryObject{}
 	decoded := &Commit{}
