@@ -687,21 +687,24 @@ func (s *SuiteCommit) TestDecodeFirstOccurrenceWins() {
 			},
 		},
 		{
-			name: "duplicate gpgsig drops the second and its continuations",
+			// Multiple gpgsig headers concatenate into a single
+			// signature buffer, mirroring upstream's
+			// parse_buffer_signed_by_header (commit.c:1186).
+			name: "multiple gpgsig headers concatenate",
 			raw: "tree " + treeA + "\nauthor " + identAuthor +
 				"\ncommitter " + identCommit +
 				"\ngpgsig firstline\n morefirst\ngpgsig secondline\n moresecond\n\nmsg\n",
 			assert: func(c *Commit) {
-				s.Equal("firstline\nmorefirst\n", c.Signature)
+				s.Equal("firstline\nmorefirst\nsecondline\nmoresecond\n", c.Signature)
 			},
 		},
 		{
-			name: "duplicate gpgsig-sha256 drops the second and its continuations",
+			name: "multiple gpgsig-sha256 headers concatenate",
 			raw: "tree " + treeA + "\nauthor " + identAuthor +
 				"\ncommitter " + identCommit +
 				"\ngpgsig-sha256 firstline\n morefirst\ngpgsig-sha256 secondline\n moresecond\n\nmsg\n",
 			assert: func(c *Commit) {
-				s.Equal("firstline\nmorefirst\n", c.SignatureSHA256)
+				s.Equal("firstline\nmorefirst\nsecondline\nmoresecond\n", c.SignatureSHA256)
 			},
 		},
 		{
