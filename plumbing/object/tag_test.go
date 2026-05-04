@@ -199,6 +199,37 @@ func (s *TagSuite) TestTagEncodeDecodeIdempotent() {
 			TargetType: plumbing.BlobObject,
 			Target:     plumbing.NewHash("b029517f6300c2da0f4b651b8642506cd6aaf45d"),
 		},
+		{
+			Name:       "signed",
+			Tagger:     Signature{Name: "Foo", Email: "foo@example.local", When: ts},
+			Message:    "Signed tag\n",
+			TargetType: plumbing.CommitObject,
+			Target:     plumbing.NewHash("c029517f6300c2da0f4b651b8642506cd6aaf45e"),
+			Signature: "-----BEGIN PGP SIGNATURE-----\n" +
+				"\n" +
+				"inlineSig=\n" +
+				"-----END PGP SIGNATURE-----\n",
+		},
+		{
+			// Compat mode in a SHA-1 primary repo: the SHA-256 sig is
+			// embedded as a "gpgsig-sha256" header, and the SHA-1 sig
+			// is appended inline. Mirrors the primary buffer produced
+			// by builtin/tag.c:do_sign.
+			Name:       "compat-primary-sha1",
+			Tagger:     Signature{Name: "Foo", Email: "foo@example.local", When: ts},
+			Message:    "Compat-mode tag, primary SHA-1\n",
+			TargetType: plumbing.CommitObject,
+			Target:     plumbing.NewHash("c029517f6300c2da0f4b651b8642506cd6aaf45e"),
+			SignatureSHA256: "-----BEGIN PGP SIGNATURE-----\n" +
+				"\n" +
+				"sha256line1\n" +
+				"sha256line2\n" +
+				"-----END PGP SIGNATURE-----\n",
+			Signature: "-----BEGIN PGP SIGNATURE-----\n" +
+				"\n" +
+				"inlineSHA1=\n" +
+				"-----END PGP SIGNATURE-----\n",
+		},
 	}
 	for _, tag := range tags {
 		obj := &plumbing.MemoryObject{}
@@ -209,6 +240,92 @@ func (s *TagSuite) TestTagEncodeDecodeIdempotent() {
 		s.NoError(err)
 		tag.Hash = obj.Hash()
 		s.Equal(tag, newTag)
+	}
+}
+
+func (s *TagSuite) TestTagDecodeRoundTrip() {
+	const (
+		target  = "c029517f6300c2da0f4b651b8642506cd6aaf45e"
+		tagger  = "Foo <foo@example.local> 1500000000 +0000"
+		sha256B = "-----BEGIN PGP SIGNATURE-----\n\nsha256line1\nsha256line2\n-----END PGP SIGNATURE-----\n"
+		inlineB = "-----BEGIN PGP SIGNATURE-----\n\ninlineline1\ninlineline2\n-----END PGP SIGNATURE-----\n"
+	)
+	headers := "object " + target + "\ntype commit\ntag t\ntagger " + tagger + "\n"
+	sha256Block := "gpgsig-sha256 -----BEGIN PGP SIGNATURE-----\n" +
+		" \n" +
+		" sha256line1\n" +
+		" sha256line2\n" +
+		" -----END PGP SIGNATURE-----\n"
+
+	tests := []struct {
+		name   string
+		raw    string
+		assert func(*Tag)
+	}{
+		{
+			name: "no signature",
+			raw:  headers + "\nplain tag message\n",
+			assert: func(t *Tag) {
+				s.Empty(t.Signature)
+				s.Empty(t.SignatureSHA256)
+				s.Equal("plain tag message\n", t.Message)
+			},
+		},
+		{
+			name: "inline trailing PGP signature",
+			raw:  headers + "\nTag body\n" + inlineB,
+			assert: func(t *Tag) {
+				s.Equal("Tag body\n", t.Message)
+				s.Equal(inlineB, t.Signature)
+				s.Empty(t.SignatureSHA256)
+			},
+		},
+		{
+			// Synthetic: upstream's do_sign always pairs the
+			// gpgsig-sha256 header with an inline trailing
+			// signature. Kept here to confirm the decoder/encoder
+			// don't depend on the trailer being present.
+			name: "gpgsig-sha256 header only (synthetic, no inline trailer)",
+			raw:  headers + sha256Block + "\nTag body, header sig only\n",
+			assert: func(t *Tag) {
+				s.Equal("Tag body, header sig only\n", t.Message)
+				s.Equal(sha256B, t.SignatureSHA256)
+				s.Empty(t.Signature)
+			},
+		},
+		{
+			// Real compat-mode layout for a SHA-1 primary repo: the
+			// SHA-256 sig is embedded as a "gpgsig-sha256" header,
+			// and the SHA-1 sig is appended inline.
+			name: "compat-mode, primary SHA-1 (gpgsig-sha256 header + inline trailer)",
+			raw:  headers + sha256Block + "\nDual-signed tag body\n" + inlineB,
+			assert: func(t *Tag) {
+				s.Equal("Dual-signed tag body\n", t.Message)
+				s.Equal(sha256B, t.SignatureSHA256)
+				s.Equal(inlineB, t.Signature)
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		s.Run(tc.name, func() {
+			obj := &plumbing.MemoryObject{}
+			obj.SetType(plumbing.TagObject)
+			_, err := obj.Write([]byte(tc.raw))
+			s.NoError(err)
+
+			tag := &Tag{}
+			s.Require().NoError(tag.Decode(obj))
+			tc.assert(tag)
+
+			encoded := &plumbing.MemoryObject{}
+			s.NoError(tag.Encode(encoded))
+			er, err := encoded.Reader()
+			s.NoError(err)
+			roundTripped, err := io.ReadAll(er)
+			s.NoError(err)
+			s.Equal(tc.raw, string(roundTripped))
+		})
 	}
 }
 

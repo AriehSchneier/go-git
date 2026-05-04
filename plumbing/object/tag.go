@@ -32,8 +32,12 @@ type Tag struct {
 	Tagger Signature
 	// Message is an arbitrary text message.
 	Message string
-	// Signature is the cryptographic signature of the tag (e.g. SSH, X.509).
+	// Signature is the cryptographic signature appended after the message
+	// body. This is the canonical tag signature in upstream Git.
 	Signature string
+	// SignatureSHA256 is the cryptographic signature stored under the
+	// "gpgsig-sha256" header.
+	SignatureSHA256 string
 	// TargetType is the object type of the target.
 	TargetType plumbing.ObjectType
 	// Target is the hash of the target object.
@@ -95,11 +99,28 @@ func (t *Tag) Decode(o plumbing.EncodedObject) (err error) {
 	r := sync.GetBufioReader(reader)
 	defer sync.PutBufioReader(r)
 
+	// pgpsig256 is true while we're inside a multi-line "gpgsig-sha256"
+	// header, so continuation lines (those starting with a space) get
+	// appended to SignatureSHA256 instead of being parsed as separate
+	// headers.
+	var pgpsig256 bool
+
 	for {
 		var line []byte
 		line, err = r.ReadBytes('\n')
 		if err != nil && err != io.EOF {
 			return err
+		}
+
+		if pgpsig256 {
+			if len(line) > 0 && line[0] == ' ' {
+				t.SignatureSHA256 += string(line[1:])
+				if err == io.EOF {
+					return nil
+				}
+				continue
+			}
+			pgpsig256 = false
 		}
 
 		line = bytes.TrimSpace(line)
@@ -108,18 +129,25 @@ func (t *Tag) Decode(o plumbing.EncodedObject) (err error) {
 		}
 
 		split := bytes.SplitN(line, []byte{' '}, 2)
+		var value []byte
+		if len(split) == 2 {
+			value = split[1]
+		}
 		switch string(split[0]) {
 		case "object":
-			t.Target = plumbing.NewHash(string(split[1]))
+			t.Target = plumbing.NewHash(string(value))
 		case "type":
-			t.TargetType, err = plumbing.ParseObjectType(string(split[1]))
+			t.TargetType, err = plumbing.ParseObjectType(string(value))
 			if err != nil {
 				return err
 			}
 		case "tag":
-			t.Name = string(split[1])
+			t.Name = string(value)
 		case "tagger":
-			t.Tagger.Decode(split[1])
+			t.Tagger.Decode(value)
+		case headerpgp256:
+			t.SignatureSHA256 += string(value) + "\n"
+			pgpsig256 = true
 		}
 
 		if err == io.EOF {
@@ -168,6 +196,21 @@ func (t *Tag) encode(o plumbing.EncodedObject, includeSig bool) (err error) {
 		return err
 	}
 
+	// gpgsig-sha256 is emitted between the tagger line and the blank line
+	// that separates headers from the body, matching upstream's
+	// add_header_signature insertion point (commit.c:1142-1171), which
+	// builtin/tag.c:do_sign reuses when signing tags in compat mode.
+	if t.SignatureSHA256 != "" && includeSig {
+		if _, err = fmt.Fprint(w, "\n"+headerpgp256+" "); err != nil {
+			return err
+		}
+		sig := strings.TrimSuffix(t.SignatureSHA256, "\n")
+		lines := strings.Split(sig, "\n")
+		if _, err = fmt.Fprint(w, strings.Join(lines, "\n ")); err != nil {
+			return err
+		}
+	}
+
 	if _, err = fmt.Fprint(w, "\n\n"); err != nil {
 		return err
 	}
@@ -176,11 +219,12 @@ func (t *Tag) encode(o plumbing.EncodedObject, includeSig bool) (err error) {
 		return err
 	}
 
-	// Note that this is highly sensitive to what it sent along in the message.
-	// Message *always* needs to end with a newline, or else the message and the
-	// signature will be concatenated into a corrupt object. Since this is a
-	// lower-level method, we assume you know what you are doing and have already
-	// done the needful on the message in the caller.
+	// Note that this is highly sensitive to what is sent along in the
+	// message. Message *always* needs to end with a newline, or else the
+	// message and the trailing signature will be concatenated into a
+	// corrupt object. Since this is a lower-level method, we assume you
+	// know what you are doing and have already done the needful on the
+	// message in the caller.
 	if includeSig {
 		if _, err = fmt.Fprint(w, t.Signature); err != nil {
 			return err
@@ -257,7 +301,8 @@ func (t *Tag) String() string {
 }
 
 // Verify performs PGP verification of the tag with a provided armored
-// keyring and returns openpgp.Entity associated with verifying key on success.
+// keyring and returns openpgp.Entity associated with verifying key on
+// success.
 func (t *Tag) Verify(armoredKeyRing string) (*openpgp.Entity, error) {
 	keyRingReader := strings.NewReader(armoredKeyRing)
 	keyring, err := openpgp.ReadArmoredKeyRing(keyRingReader)
