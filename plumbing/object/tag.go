@@ -1,6 +1,7 @@
 package object
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 
@@ -11,6 +12,10 @@ import (
 	"github.com/go-git/go-git/v6/utils/ioutil"
 	"github.com/go-git/go-git/v6/utils/sync"
 )
+
+// ErrMalformedTag is returned when a tag object cannot be decoded because
+// its required headers (object, type, tag) are missing or out of order.
+var ErrMalformedTag = errors.New("malformed tag")
 
 // Tag represents an annotated tag object. It points to a single git object of
 // any type, but tags typically are applied to commit or blob objects. It

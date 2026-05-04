@@ -84,7 +84,11 @@ func scanTree(s *commitScanner) (commitState, error) {
 	if key != "tree" {
 		return nil, fmt.Errorf("%w: tree header must be first", ErrMalformedCommit)
 	}
-	s.c.TreeHash = plumbing.NewHash(string(data))
+	h, herr := parseObjectIDHex(data, ErrMalformedCommit, "tree")
+	if herr != nil {
+		return nil, herr
+	}
+	s.c.TreeHash = h
 	s.sawTree = true
 	if err == io.EOF {
 		return nil, nil
@@ -111,7 +115,11 @@ func scanParents(s *commitScanner) (commitState, error) {
 
 	key, data := splitHeader(line)
 	if key == "parent" {
-		s.c.ParentHashes = append(s.c.ParentHashes, plumbing.NewHash(string(data)))
+		h, herr := parseObjectIDHex(data, ErrMalformedCommit, "parent")
+		if herr != nil {
+			return nil, herr
+		}
+		s.c.ParentHashes = append(s.c.ParentHashes, h)
 		if err == io.EOF {
 			return nil, nil
 		}
@@ -329,4 +337,15 @@ func splitHeader(line []byte) (string, []byte) {
 		return string(trimmed), nil
 	}
 	return string(key), value
+}
+
+func parseObjectIDHex(data []byte, malformedErr error, header string) (plumbing.Hash, error) {
+	if len(data) != 40 && len(data) != 64 {
+		return plumbing.ZeroHash, fmt.Errorf("%w: bad %s hash", malformedErr, header)
+	}
+	h, ok := plumbing.FromHex(string(data))
+	if !ok {
+		return plumbing.ZeroHash, fmt.Errorf("%w: bad %s hash", malformedErr, header)
+	}
+	return h, nil
 }
