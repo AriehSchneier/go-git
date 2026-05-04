@@ -65,6 +65,7 @@ func testAdvertise[T UploadPackRequest | ReceivePackRequest](
 		t.Fatal(err)
 	}
 	st := filesystem.NewStorage(dot, cache.NewObjectLRUDefault())
+	defer func() { _ = st.Close() }()
 	opts := new(T)
 	switch o := any(opts).(type) {
 	case *UploadPackRequest:

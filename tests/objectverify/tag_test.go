@@ -104,6 +104,7 @@ func TestTagVerifyAlignment(t *testing.T) {
 
 			r, err := git.PlainOpen(repo)
 			require.NoError(t, err)
+			defer func() { _ = r.Close() }()
 			tag, err := r.TagObject(hash)
 			ggDecodeErr := err
 			var ggVerifyErr error

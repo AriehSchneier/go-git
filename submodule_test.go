@@ -23,6 +23,7 @@ func TestSubmoduleInit(t *testing.T) {
 		t.Parallel()
 
 		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm := namedSubmodule(t, wt, primaryFixtureSubmoduleName(f))
 
@@ -53,6 +54,7 @@ func TestSubmoduleUpdate(t *testing.T) {
 		}
 
 		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm := namedSubmodule(t, wt, primaryFixtureSubmoduleName(f))
 		require.NoError(t, sm.Update(&SubmoduleUpdateOptions{Init: true}))
@@ -77,13 +79,14 @@ func TestSubmoduleRepositoryWithoutInit(t *testing.T) {
 	fixtures.ByTag("submodule").Run(t, func(t *testing.T, f *fixtures.Fixture) {
 		t.Parallel()
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm := namedSubmodule(t, wt, primaryFixtureSubmoduleName(f))
 
-		r, err := sm.Repository()
+		subRepo, err := sm.Repository()
 		require.ErrorIs(t, err, ErrSubmoduleNotInitialized)
-		require.Nil(t, r)
+		require.Nil(t, subRepo)
 	})
 }
 
@@ -93,7 +96,8 @@ func TestSubmoduleUpdateWithoutInit(t *testing.T) {
 	fixtures.ByTag("submodule").Run(t, func(t *testing.T, f *fixtures.Fixture) {
 		t.Parallel()
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm := namedSubmodule(t, wt, primaryFixtureSubmoduleName(f))
 		err := sm.Update(&SubmoduleUpdateOptions{})
@@ -107,7 +111,8 @@ func TestSubmoduleUpdateWithNotFetch(t *testing.T) {
 	fixtures.ByTag("submodule").Run(t, func(t *testing.T, f *fixtures.Fixture) {
 		t.Parallel()
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm := namedSubmodule(t, wt, primaryFixtureSubmoduleName(f))
 		err := sm.Update(&SubmoduleUpdateOptions{
@@ -129,7 +134,8 @@ func TestSubmoduleUpdateWithRecursion(t *testing.T) {
 			t.Skip("skipping test in short mode.")
 		}
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm := namedSubmodule(t, wt, "itself")
 		err := sm.Update(&SubmoduleUpdateOptions{
@@ -155,6 +161,7 @@ func TestSubmoduleUpdateWithInitAndUpdate(t *testing.T) {
 		}
 
 		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm := namedSubmodule(t, wt, primaryFixtureSubmoduleName(f))
 		require.NoError(t, sm.Update(&SubmoduleUpdateOptions{Init: true}))
@@ -202,7 +209,8 @@ func TestSubmodulesInit(t *testing.T) {
 	fixtures.ByTag("submodule").Run(t, func(t *testing.T, f *fixtures.Fixture) {
 		t.Parallel()
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm, err := wt.Submodules()
 		require.NoError(t, err)
@@ -223,7 +231,8 @@ func TestGitSubmodulesSymlink(t *testing.T) {
 	fixtures.ByTag("submodule").Run(t, func(t *testing.T, f *fixtures.Fixture) {
 		t.Parallel()
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		// Plant the malicious symlink directly on the inner filesystem.
 		// The worktreeFilesystem wrapper's Symlink rejects .gitmodules
@@ -249,7 +258,8 @@ func TestSubmodulesStatus(t *testing.T) {
 	fixtures.ByTag("submodule").Run(t, func(t *testing.T, f *fixtures.Fixture) {
 		t.Parallel()
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm, err := wt.Submodules()
 		require.NoError(t, err)
@@ -270,7 +280,8 @@ func TestSubmodulesUpdateContext(t *testing.T) {
 			t.Skip("skipping test in short mode.")
 		}
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm, err := wt.Submodules()
 		require.NoError(t, err)
@@ -297,7 +308,8 @@ func TestSubmodulesFetchDepth(t *testing.T) {
 			t.Skip("shallow submodule updates do not yet support SHA-256 shallow-update parsing")
 		}
 
-		_, wt := cloneFixture(t, f)
+		r, wt := cloneFixture(t, f)
+		defer func() { _ = r.Close() }()
 
 		sm := namedSubmodule(t, wt, primaryFixtureSubmoduleName(f))
 		require.NoError(t, sm.Update(&SubmoduleUpdateOptions{
@@ -346,8 +358,9 @@ func TestSubmoduleParseScp(t *testing.T) {
 			URL:  "git@github.com:username/submodule_repo",
 		}
 
-		_, err := submodule.Repository()
+		subRepo, err := submodule.Repository()
 		require.NoError(t, err)
+		defer func() { _ = subRepo.Close() }()
 	})
 }
 
@@ -497,6 +510,7 @@ func TestSubmoduleRelativeURLPicksOrigin(t *testing.T) {
 
 		subRepo, err := sub.Repository()
 		require.NoError(t, err, "iteration %d", i)
+		defer func() { _ = subRepo.Close() }()
 
 		remotes, err := subRepo.Remotes()
 		require.NoError(t, err)
@@ -651,6 +665,7 @@ func TestSubmoduleRepositoryURLResolution(t *testing.T) {
 				return
 			}
 			require.NoError(t, err)
+			defer func() { _ = r.Close() }()
 
 			remotes, err := r.Remotes()
 			require.NoError(t, err)
@@ -674,6 +689,7 @@ func TestSubmoduleRepositoryRejectsEscapingName(t *testing.T) {
 	storer := filesystem.NewStorage(dotfs, cache.NewObjectLRUDefault())
 	r, err := Init(storer, WithWorkTree(wtfs))
 	require.NoError(t, err)
+	defer func() { _ = r.Close() }()
 
 	wt, err := r.Worktree()
 	require.NoError(t, err)
