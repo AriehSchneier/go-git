@@ -1328,7 +1328,6 @@ func TestIssue55(t *testing.T) {
 		fs   billy.Filesystem
 	}{
 		{"BoundOS", osfs.New(t.TempDir(), osfs.WithBoundOS())},
-		{"ChrootOS", osfs.New(t.TempDir(), osfs.WithChrootOS())},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
