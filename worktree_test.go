@@ -11,6 +11,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -3761,7 +3762,7 @@ func (s *WorktreeSuite) TestLinkedWorktree() {
 func TestTreeContainsDirs(t *testing.T) {
 	t.Parallel()
 	buildTree := func() *object.Tree {
-		return &object.Tree{
+		tree := &object.Tree{
 			Entries: []object.TreeEntry{
 				{Name: "foo", Mode: filemode.Dir},
 				{Name: "bar", Mode: filemode.Dir},
@@ -3769,6 +3770,9 @@ func TestTreeContainsDirs(t *testing.T) {
 				{Name: "this-is-regular", Mode: filemode.Regular},
 			},
 		}
+
+		sort.Sort(object.TreeEntrySorter(tree.Entries))
+		return tree
 	}
 
 	tests := []struct {
