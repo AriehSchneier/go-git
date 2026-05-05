@@ -1151,6 +1151,66 @@ func TestAlternatesDupes(t *testing.T) {
 	assert.Len(t, dotgits, 1)
 }
 
+func TestAlternatesAbsolutePathOutsideAlternatesFSRoot(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	altRoot := filepath.Join(base, "alt-root")
+	outsideObjects := filepath.Join(base, "outside", ".git", "objects")
+
+	require.NoError(t, os.MkdirAll(altRoot, 0o700))
+	require.NoError(t, os.MkdirAll(outsideObjects, 0o700))
+
+	altFS := osfs.New(altRoot)
+	dotFS, err := altFS.Chroot("repo")
+	require.NoError(t, err)
+
+	dir := NewWithOptions(dotFS, Options{AlternatesFS: altFS})
+	require.NoError(t, dir.Initialize())
+
+	require.NoError(t, altFS.MkdirAll(filepath.Join("outside", ".git", "objects"), 0o700))
+
+	altpath := dotFS.Join("objects", "info", "alternates")
+	f, err := dotFS.Create(altpath)
+	require.NoError(t, err)
+	_, err = f.Write([]byte(outsideObjects + "\n"))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	dotgits, err := dir.Alternates()
+	require.Error(t, err)
+	assert.Nil(t, dotgits)
+	assert.ErrorIs(t, err, os.ErrNotExist)
+}
+
+func TestAlternatesDefaultAbsolutePathOutsideDotGitRoot(t *testing.T) {
+	t.Parallel()
+
+	base := t.TempDir()
+	dotRoot := filepath.Join(base, "repo", ".git")
+	alternateRoot := filepath.Join(base, "alternate", ".git")
+	alternateObjects := filepath.Join(alternateRoot, "objects")
+
+	require.NoError(t, os.MkdirAll(dotRoot, 0o700))
+	require.NoError(t, os.MkdirAll(alternateObjects, 0o700))
+
+	dotFS := osfs.New(dotRoot)
+	dir := NewWithOptions(dotFS, Options{AlternatesFS: osfs.New(alternateRoot)})
+	require.NoError(t, dir.Initialize())
+
+	altpath := dotFS.Join("objects", "info", "alternates")
+	f, err := dotFS.Create(altpath)
+	require.NoError(t, err)
+	_, err = f.Write([]byte(alternateObjects + "\n"))
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	dotgits, err := dir.Alternates()
+	require.NoError(t, err)
+	require.Len(t, dotgits, 1)
+	assert.Equal(t, alternateRoot, dotgits[0].fs.Root())
+}
+
 type norwfs struct {
 	billy.Filesystem
 }
