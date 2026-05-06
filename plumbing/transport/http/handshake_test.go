@@ -39,6 +39,7 @@ func TestSmartMultiRoundFetch(t *testing.T) {
 	remoteFS := prepareRepo(t, fixture, base, "packfile.git")
 	remotePath := remoteFS.Root()
 	remoteStorage := filesystem.NewStorage(osfs.New(remotePath), cache.NewObjectLRUDefault())
+	defer func() { _ = remoteStorage.Close() }()
 
 	oldCommit := nthCommitFromHead(t, remoteStorage, plumbing.NewHash(fixture.Head), 96)
 
@@ -46,6 +47,8 @@ func TestSmartMultiRoundFetch(t *testing.T) {
 	require.NoError(t, remoteStorage.SetReference(plumbing.NewHashReference(seedRef, oldCommit)))
 	seedPath := filepath.Join(t.TempDir(), "seed.git")
 	seedStorage := initBareStorage(t, seedPath)
+	defer func() { _ = seedStorage.Close() }()
+
 	fetchToStorage(t, remotePath, seedStorage, oldCommit)
 	require.NoError(t, seedStorage.SetReference(plumbing.NewHashReference(plumbing.Master, oldCommit)))
 	require.NoError(t, seedStorage.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.Master)))
@@ -53,6 +56,8 @@ func TestSmartMultiRoundFetch(t *testing.T) {
 
 	clientPath := filepath.Join(t.TempDir(), "client.git")
 	clientStorage := initBareStorage(t, clientPath)
+	defer func() { _ = clientStorage.Close() }()
+
 	fetchToStorage(t, seedPath, clientStorage, oldCommit)
 	require.NoError(t, clientStorage.SetReference(plumbing.NewHashReference(plumbing.Master, oldCommit)))
 	require.NoError(t, clientStorage.SetReference(plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.Master)))
