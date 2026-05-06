@@ -13,14 +13,12 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"reflect"
 	"runtime"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/go-git/go-billy/v6"
-	"github.com/go-git/go-billy/v6/helper/chroot"
 
 	"github.com/go-git/go-git/v6/plumbing"
 	formatcfg "github.com/go-git/go-git/v6/plumbing/format/config"
@@ -1332,24 +1330,8 @@ func (d *DotGit) Alternates() ([]*DotGit, error) {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		path := scanner.Text()
-
-		// Avoid creating multiple dotgits for the same alternative path.
-		if _, ok := seen[path]; ok {
-			continue
-		}
-
-		seen[path] = struct{}{}
-
-		if filepath.IsAbs(path) {
-			// Handling absolute paths should be straight-forward. However, the default osfs (Chroot)
-			// tries to concatenate an abs path with the root path in some operations (e.g. Stat),
-			// which leads to unexpected errors. Therefore, make the path relative to the current FS instead.
-			if reflect.TypeOf(fs) == reflect.TypeFor[*chroot.ChrootHelper]() {
-				path, err = filepath.Rel(fs.Root(), path)
-				if err != nil {
-					return nil, fmt.Errorf("cannot make path %q relative: %w", path, err)
-				}
-			}
+		if filepath.IsAbs(path) || filepath.VolumeName(path) != "" {
+			path = filepath.Clean(path)
 		} else {
 			// By Git conventions, relative paths should be based on the object database (.git/objects/info)
 			// location as per: https://www.kernel.org/pub/software/scm/git/docs/gitrepository-layout.html
@@ -1359,6 +1341,15 @@ func (d *DotGit) Alternates() ([]*DotGit, error) {
 			abs := filepath.Join(string(filepath.Separator), filepath.ToSlash(path))
 			path = filepath.FromSlash(abs)
 		}
+
+		path = alternatePathForFS(path, fs.Root())
+
+		// Avoid creating multiple dotgits for the same alternative path.
+		if _, ok := seen[path]; ok {
+			continue
+		}
+
+		seen[path] = struct{}{}
 
 		// Aligns with upstream behavior: exit if target path is not a valid directory.
 		if fi, err := fs.Stat(path); err != nil || !fi.IsDir() {
@@ -1376,6 +1367,29 @@ func (d *DotGit) Alternates() ([]*DotGit, error) {
 	}
 
 	return alternates, nil
+}
+
+func alternatePathForFS(path, root string) string {
+	if root == "" {
+		return path
+	}
+
+	root = filepath.Clean(root)
+	if root == "." || root == string(filepath.Separator) {
+		return path
+	}
+
+	rel, err := filepath.Rel(root, path)
+	if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return rel
+	}
+
+	vol := filepath.VolumeName(path)
+	if vol != "" {
+		return strings.TrimLeft(path[len(vol):], `\/`)
+	}
+
+	return strings.TrimPrefix(path, root+string(filepath.Separator))
 }
 
 // Fs returns the underlying filesystem of the DotGit folder.
