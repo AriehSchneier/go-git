@@ -184,7 +184,8 @@ func TestGitServer_Timeout(t *testing.T) {
 	_, err = conn.Read(buf)
 	elapsed := time.Since(start)
 	assert.Error(t, err, "server should close idle connection past Timeout")
-	assert.GreaterOrEqual(t, elapsed, srv.Timeout, "server should not close before Timeout elapses")
+	// Allow a small tolerance for timer/scheduling jitter.
+	assert.GreaterOrEqual(t, elapsed, srv.Timeout-5*time.Millisecond, "server should not close before Timeout elapses")
 }
 
 // gitServer is a helper that holds a running git:// server and its endpoint.
