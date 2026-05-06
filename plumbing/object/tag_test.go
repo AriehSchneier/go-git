@@ -244,6 +244,74 @@ func (s *TagSuite) TestTagEncodeDecodeIdempotent() {
 	}
 }
 
+func (s *TagSuite) TestTagEncodeOmitsZeroTagger() {
+	const raw = "object c029517f6300c2da0f4b651b8642506cd6aaf45e\n" +
+		"type commit\n" +
+		"tag v1\n" +
+		"\n" +
+		"msg\n"
+
+	obj := &plumbing.MemoryObject{}
+	obj.SetType(plumbing.TagObject)
+	_, err := obj.Write([]byte(raw))
+	s.NoError(err)
+
+	tag := &Tag{}
+	s.NoError(tag.Decode(obj))
+	s.Equal(Signature{}, tag.Tagger)
+
+	encoded := &plumbing.MemoryObject{}
+	s.NoError(tag.Encode(encoded))
+
+	r, err := encoded.Reader()
+	s.NoError(err)
+	defer r.Close()
+
+	body, err := io.ReadAll(r)
+	s.NoError(err)
+	s.Equal(raw, string(body))
+}
+
+func (s *TagSuite) TestTagDecodeClearsExistingState() {
+	const raw = "object c029517f6300c2da0f4b651b8642506cd6aaf45e\n" +
+		"type commit\n" +
+		"tag fresh\n" +
+		"\n" +
+		"fresh message\n"
+
+	store := memory.NewStorage()
+	staleSrc := &plumbing.MemoryObject{}
+	tag := &Tag{
+		Hash:            plumbing.NewHash("1111111111111111111111111111111111111111"),
+		Name:            "stale",
+		Tagger:          Signature{Name: "Stale", Email: "stale@example.local", When: time.Unix(1, 0).UTC()},
+		Message:         "stale message",
+		Signature:       "stale signature",
+		SignatureSHA256: "stale sha256 signature",
+		TargetType:      plumbing.BlobObject,
+		Target:          plumbing.NewHash("2222222222222222222222222222222222222222"),
+		s:               store,
+		src:             staleSrc,
+	}
+
+	obj := &plumbing.MemoryObject{}
+	obj.SetType(plumbing.TagObject)
+	_, err := obj.Write([]byte(raw))
+	s.NoError(err)
+
+	s.NoError(tag.Decode(obj))
+	s.Equal(obj.Hash(), tag.Hash)
+	s.Equal("fresh", tag.Name)
+	s.Equal(Signature{}, tag.Tagger)
+	s.Equal("fresh message\n", tag.Message)
+	s.Equal("", tag.Signature)
+	s.Equal("", tag.SignatureSHA256)
+	s.Equal(plumbing.CommitObject, tag.TargetType)
+	s.Equal("c029517f6300c2da0f4b651b8642506cd6aaf45e", tag.Target.String())
+	s.Equal(store, tag.s)
+	s.Equal(obj, tag.src)
+}
+
 func (s *TagSuite) TestTagDecodeRoundTrip() {
 	const (
 		target  = "c029517f6300c2da0f4b651b8642506cd6aaf45e"
@@ -608,6 +676,7 @@ func (s *TagSuite) TestStringNonCommit() {
 	tag := &Tag{
 		Target:     targetObj.Hash(),
 		Name:       "TAG TWO",
+		Tagger:     Signature{Name: "Test Tagger", Email: "tagger@example.local", When: time.Unix(0, 0).UTC()},
 		Message:    "tag two",
 		TargetType: plumbing.TagObject,
 	}
@@ -621,7 +690,7 @@ func (s *TagSuite) TestStringNonCommit() {
 
 	s.Equal(
 		"tag TAG TWO\n"+
-			"Tagger:  <>\n"+
+			"Tagger: Test Tagger <tagger@example.local>\n"+
 			"Date:   Thu Jan 01 00:00:00 1970 +0000\n"+
 			"\n"+
 			"tag two\n",

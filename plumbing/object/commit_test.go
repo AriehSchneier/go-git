@@ -46,6 +46,49 @@ func (s *SuiteCommit) TestDecodeNonCommit() {
 	s.ErrorIs(err, ErrUnsupportedObject)
 }
 
+func (s *SuiteCommit) TestDecodeClearsExistingState() {
+	const raw = "tree eba74343e2f15d62adedfd8c883ee0262b5c8021\n\nfresh message\n"
+
+	staleSrc := &plumbing.MemoryObject{}
+	commit := &Commit{
+		Hash:            plumbing.NewHash("1111111111111111111111111111111111111111"),
+		Author:          Signature{Name: "Stale Author", Email: "author@example.local", When: time.Unix(1, 0).UTC()},
+		Committer:       Signature{Name: "Stale Committer", Email: "committer@example.local", When: time.Unix(2, 0).UTC()},
+		Signature:       "stale signature",
+		SignatureSHA256: "stale sha256 signature",
+		Message:         "stale message",
+		TreeHash:        plumbing.NewHash("2222222222222222222222222222222222222222"),
+		ParentHashes: []plumbing.Hash{
+			plumbing.NewHash("3333333333333333333333333333333333333333"),
+		},
+		Encoding: MessageEncoding("latin-1"),
+		ExtraHeaders: []ExtraHeader{
+			{Key: "x-stale", Value: "stale"},
+		},
+		s:   s.Storer,
+		src: staleSrc,
+	}
+
+	obj := &plumbing.MemoryObject{}
+	obj.SetType(plumbing.CommitObject)
+	_, err := obj.Write([]byte(raw))
+	s.NoError(err)
+
+	s.NoError(commit.Decode(obj))
+	s.Equal(obj.Hash(), commit.Hash)
+	s.Equal(Signature{}, commit.Author)
+	s.Equal(Signature{}, commit.Committer)
+	s.Equal("", commit.Signature)
+	s.Equal("", commit.SignatureSHA256)
+	s.Equal("fresh message\n", commit.Message)
+	s.Equal("eba74343e2f15d62adedfd8c883ee0262b5c8021", commit.TreeHash.String())
+	s.Nil(commit.ParentHashes)
+	s.Equal(defaultUtf8CommitMessageEncoding, commit.Encoding)
+	s.Nil(commit.ExtraHeaders)
+	s.Equal(s.Storer, commit.s)
+	s.Equal(obj, commit.src)
+}
+
 func (s *SuiteCommit) TestType() {
 	s.Equal(plumbing.CommitObject, s.Commit.Type())
 }
