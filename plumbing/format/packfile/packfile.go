@@ -338,13 +338,16 @@ func (p *Packfile) getMemoryObject(oh *ObjectHeader) (plumbing.EncodedObject, er
 			return nil, fmt.Errorf("cannot find base object: %w", err)
 		}
 
+		// The scanner pre-populates oh.content for delta objects when
+		// running outside low-memory mode; only inflate when we don't
+		// already hold the bytes, otherwise this would append a
+		// duplicate copy of the delta payload.
 		if oh.content == nil {
 			oh.content = gogitsync.GetBytesBuffer()
-		}
-
-		err = p.scanner.inflateContent(oh.ContentOffset, oh.content)
-		if err != nil {
-			return nil, fmt.Errorf("cannot inflate content: %w", err)
+			err = p.scanner.inflateContent(oh.ContentOffset, oh.content)
+			if err != nil {
+				return nil, fmt.Errorf("cannot inflate content: %w", err)
+			}
 		}
 
 		obj.SetType(parent.Type())
