@@ -763,6 +763,7 @@ func (s *ObjectStorage) HashesWithPrefix(prefix []byte) ([]plumbing.Hash, error)
 			if err == io.EOF {
 				break
 			} else if err != nil {
+				_ = ei.Close()
 				return nil, err
 			}
 			if e.Hash.HasPrefix(prefix) {
