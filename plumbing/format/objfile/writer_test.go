@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/go-git/go-git/v6/plumbing"
+	format "github.com/go-git/go-git/v6/plumbing/format/config"
 )
 
 type SuiteWriter struct {
@@ -40,7 +41,7 @@ func (s *SuiteWriter) TestWriteObjfile() {
 
 func testWriter(t *testing.T, dest io.Writer, hash plumbing.Hash, o plumbing.ObjectType, content []byte) {
 	size := int64(len(content))
-	w := NewWriter(dest)
+	w := NewWriter(dest, format.SHA1)
 
 	err := w.WriteHeader(o, size)
 	assert.NoError(t, err)
@@ -53,9 +54,28 @@ func testWriter(t *testing.T, dest io.Writer, hash plumbing.Hash, o plumbing.Obj
 	assert.NoError(t, w.Close())
 }
 
+func (s *SuiteWriter) TestWriteObjfileSHA256Hash() {
+	content := []byte("hello sha256\n")
+	buf := bytes.NewBuffer(nil)
+	w := NewWriter(buf, format.SHA256)
+
+	err := w.WriteHeader(plumbing.BlobObject, int64(len(content)))
+	s.NoError(err)
+
+	written, err := io.Copy(w, bytes.NewReader(content))
+	s.NoError(err)
+	s.Equal(int64(len(content)), written)
+
+	s.Equal(
+		"2928cdcdc8b78c930378ceba09ce9ca8b888fbfe1bffb2cceb42bdff9421cb52",
+		w.Hash().String(),
+	)
+	s.NoError(w.Close())
+}
+
 func (s *SuiteWriter) TestWriteOverflow() {
 	buf := bytes.NewBuffer(nil)
-	w := NewWriter(buf)
+	w := NewWriter(buf, format.SHA1)
 
 	err := w.WriteHeader(plumbing.BlobObject, 8)
 	s.NoError(err)
@@ -71,7 +91,7 @@ func (s *SuiteWriter) TestWriteOverflow() {
 
 func (s *SuiteWriter) TestNewWriterInvalidType() {
 	buf := bytes.NewBuffer(nil)
-	w := NewWriter(buf)
+	w := NewWriter(buf, format.SHA1)
 
 	err := w.WriteHeader(plumbing.InvalidObject, 8)
 	s.ErrorIs(err, plumbing.ErrInvalidType)
@@ -79,7 +99,7 @@ func (s *SuiteWriter) TestNewWriterInvalidType() {
 
 func (s *SuiteWriter) TestNewWriterInvalidSize() {
 	buf := bytes.NewBuffer(nil)
-	w := NewWriter(buf)
+	w := NewWriter(buf, format.SHA1)
 
 	err := w.WriteHeader(plumbing.BlobObject, -1)
 	s.ErrorIs(err, ErrNegativeSize)

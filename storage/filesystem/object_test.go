@@ -16,6 +16,7 @@ import (
 
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/cache"
+	formatcfg "github.com/go-git/go-git/v6/plumbing/format/config"
 	"github.com/go-git/go-git/v6/storage/filesystem/dotgit"
 )
 
@@ -76,6 +77,41 @@ func (s *FsSuite) TestIterEncodedObjectsSHA256HashesRoundTrip() {
 		return nil
 	})
 	s.Require().NoError(err)
+}
+
+func (s *FsSuite) TestSetEncodedObjectSHA256LooseObjectRoundTrip() {
+	fs := osfs.New(s.T().TempDir())
+	o := NewStorageWithOptions(
+		fs,
+		cache.NewObjectLRUDefault(),
+		Options{ObjectFormat: formatcfg.SHA256},
+	)
+	s.Require().NoError(o.Init())
+
+	obj := o.NewEncodedObject()
+	obj.SetType(plumbing.BlobObject)
+
+	content := []byte("hello sha256\n")
+	writer, err := obj.Writer()
+	s.Require().NoError(err)
+	_, err = writer.Write(content)
+	s.Require().NoError(err)
+	s.Require().NoError(writer.Close())
+
+	hash, err := o.SetEncodedObject(obj)
+	s.Require().NoError(err)
+	s.Equal("2928cdcdc8b78c930378ceba09ce9ca8b888fbfe1bffb2cceb42bdff9421cb52", hash.String())
+	s.Require().NoError(o.HasEncodedObject(hash))
+	s.Require().FileExists(filepath.Join(fs.Root(), "objects", hash.String()[:2], hash.String()[2:]))
+
+	roundTrip, err := o.EncodedObject(plumbing.BlobObject, hash)
+	s.Require().NoError(err)
+	reader, err := roundTrip.Reader()
+	s.Require().NoError(err)
+	defer reader.Close()
+	roundTripContent, err := io.ReadAll(reader)
+	s.Require().NoError(err)
+	s.Equal(content, roundTripContent)
 }
 
 func firstNonMatching(packfileHash string) *fixtures.Fixture {
