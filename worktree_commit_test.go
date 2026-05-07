@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"sort"
 	"testing"
 	"time"
 
@@ -291,7 +293,7 @@ func (s *WorktreeSuite) TestCommitParent() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -314,7 +316,7 @@ func (s *WorktreeSuite) TestCommitAmendWithoutChanges() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -349,7 +351,7 @@ func (s *WorktreeSuite) TestCommitAmendWithChanges() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -400,7 +402,7 @@ func (s *WorktreeSuite) TestCommitAmendNothingToCommit() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -479,7 +481,7 @@ func TestAddAndCommitWithSkipStatus(t *testing.T) {
 	r := NewRepositoryWithEmptyWorktree(f)
 	w := &Worktree{
 		r:          r,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -531,7 +533,7 @@ func (s *WorktreeSuite) TestAddAndCommitWithSkipStatusPathNotModified() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -617,7 +619,7 @@ func (s *WorktreeSuite) TestCommitAll() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -643,7 +645,7 @@ func (s *WorktreeSuite) TestRemoveAndCommitAll() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -785,6 +787,99 @@ func (s *WorktreeSuite) TestCherryPick() {
 	s.ErrorIs(err, ErrCannotCherryPickWithoutCommitOptions)
 }
 
+func (s *WorktreeSuite) TestCherryPickRejectsInvalidPaths() {
+	fs := memfs.New()
+
+	storage := memory.NewStorage()
+	r, err := Init(storage, WithWorkTree(fs))
+	s.Require().NoError(err)
+
+	w, err := r.Worktree()
+	s.Require().NoError(err)
+
+	err = util.WriteFile(fs, "foo", []byte("foo"), 0o644)
+	s.Require().NoError(err)
+	_, err = w.Add("foo")
+	s.Require().NoError(err)
+
+	initHash, err := w.Commit("initial commit\n", &CommitOptions{Author: defaultSignature()})
+	s.Require().NoError(err)
+
+	initCommit, err := r.CommitObject(initHash)
+	s.Require().NoError(err)
+
+	badContent := []byte("content")
+	blobHash := s.storeBlob(storage, badContent)
+
+	for _, name := range []string{
+		".git/config",
+		".git/objects/pack/file",
+		"../file",
+	} {
+		badCommit := s.buildChildCommit(storage, initCommit, initHash, name, blobHash)
+
+		err = w.Checkout(&CheckoutOptions{Hash: initHash})
+		s.Require().NoError(err)
+
+		err = w.CherryPick(&CommitOptions{Author: defaultSignature(), AllowEmptyCommits: true}, TheirsMergeStrategy, badCommit)
+		s.Error(err, "expected cherry-pick to reject path %q", name)
+	}
+}
+
+func (s *WorktreeSuite) storeBlob(storage *memory.Storage, content []byte) plumbing.Hash {
+	s.T().Helper()
+
+	obj := storage.NewEncodedObject()
+	obj.SetType(plumbing.BlobObject)
+	obj.SetSize(int64(len(content)))
+	bw, err := obj.Writer()
+	s.Require().NoError(err)
+	_, err = bw.Write(content)
+	s.Require().NoError(err)
+	s.Require().NoError(bw.Close())
+	h, err := storage.SetEncodedObject(obj)
+	s.Require().NoError(err)
+	return h
+}
+
+func (s *WorktreeSuite) buildChildCommit(storage *memory.Storage, parent *object.Commit, parentHash plumbing.Hash, filename string, blobHash plumbing.Hash) *object.Commit {
+	s.T().Helper()
+
+	parentTree, err := parent.Tree()
+	s.Require().NoError(err)
+
+	entries := slices.Clone(parentTree.Entries)
+	entries = append(entries, object.TreeEntry{
+		Name: filename,
+		Mode: filemode.Regular,
+		Hash: blobHash,
+	})
+	tree := &object.Tree{Entries: entries}
+	sort.Sort(object.TreeEntrySorter(tree.Entries))
+	treeObj := storage.NewEncodedObject()
+	err = tree.Encode(treeObj)
+	s.Require().NoError(err)
+	treeHash, err := storage.SetEncodedObject(treeObj)
+	s.Require().NoError(err)
+
+	commit := &object.Commit{
+		Author:       *defaultSignature(),
+		Committer:    *defaultSignature(),
+		Message:      "add " + filename + "\n",
+		TreeHash:     treeHash,
+		ParentHashes: []plumbing.Hash{parentHash},
+	}
+	commitObj := storage.NewEncodedObject()
+	err = commit.Encode(commitObj)
+	s.Require().NoError(err)
+	commitHash, err := storage.SetEncodedObject(commitObj)
+	s.Require().NoError(err)
+
+	result, err := object.GetCommit(storage, commitHash)
+	s.Require().NoError(err)
+	return result
+}
+
 func (s *WorktreeSuite) TestCommitTreeSort() {
 	fs := s.TemporalFilesystem()
 
@@ -800,7 +895,7 @@ func (s *WorktreeSuite) TestCommitTreeSort() {
 	w, err := r.Worktree()
 	s.Require().NoError(err)
 
-	mfs := w.Filesystem
+	mfs := w.filesystem
 
 	err = mfs.MkdirAll("delta", 0o755)
 	s.Require().NoError(err)
@@ -947,7 +1042,7 @@ func BenchmarkCommit(b *testing.B) {
 		for range b.N {
 			b.StopTimer()
 			fileName := filepath.Join("dir0", fmt.Sprintf("bench_%d.txt", seq))
-			err := util.WriteFile(wt.Filesystem, fileName, fmt.Appendf(nil, "content %d", seq), 0o644)
+			err := util.WriteFile(wt.filesystem, fileName, fmt.Appendf(nil, "content %d", seq), 0o644)
 			require.NoError(b, err)
 
 			_, err = wt.Add(fileName)

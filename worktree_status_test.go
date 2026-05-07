@@ -111,8 +111,8 @@ func TestStatusReportsModifiedTrackedFileInIgnoredDirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	write := func(name string, data []byte) {
-		require.NoError(t, wt.Filesystem.MkdirAll(filepath.Dir(name), 0o755))
-		require.NoError(t, util.WriteFile(wt.Filesystem, name, data, 0o644))
+		require.NoError(t, wt.Filesystem().MkdirAll(filepath.Dir(name), 0o755))
+		require.NoError(t, util.WriteFile(wt.Filesystem(), name, data, 0o644))
 	}
 
 	write("src/main.go", []byte("package main\n"))

@@ -95,7 +95,7 @@ func TestSubmoduleRepositoryCreateRemoteWritesModuleConfig(t *testing.T) {
 		_, ok := parentCfg.Remotes["module-only"]
 		assert.False(t, ok)
 
-		repoPath := wt.Filesystem.Root()
+		repoPath := wt.Filesystem().Root()
 		moduleCfg := readConfigFile(t, filepath.Join(repoPath, ".git", "modules", sm.c.Name, "config"))
 		require.Contains(t, moduleCfg.Remotes, "module-only")
 		assert.Equal(t, []string{"https://example.com/submodule.git"}, moduleCfg.Remotes["module-only"].URLs)

@@ -123,7 +123,7 @@ func (s *Submodule) Repository() (*Repository, error) {
 	}
 
 	var worktree billy.Filesystem
-	if worktree, err = s.w.Filesystem.Chroot(s.c.Path); err != nil {
+	if worktree, err = s.w.filesystem.Chroot(s.c.Path); err != nil {
 		return nil, err
 	}
 

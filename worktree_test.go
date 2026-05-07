@@ -87,7 +87,7 @@ func (s *WorktreeSuite) TestPullFastForward() {
 
 	w, err := server.Worktree()
 	s.NoError(err)
-	s.NoError(util.WriteFile(w.Filesystem, "foo", []byte("foo"), 0o755))
+	s.NoError(util.WriteFile(w.filesystem, "foo", []byte("foo"), 0o755))
 	w.Add("foo")
 	hash, err := w.Commit("foo", &CommitOptions{Author: defaultSignature()})
 	s.NoError(err)
@@ -114,14 +114,14 @@ func (s *WorktreeSuite) TestPullNonFastForward() {
 
 	w, err := server.Worktree()
 	s.NoError(err)
-	s.NoError(util.WriteFile(w.Filesystem, "foo", []byte("foo"), 0o755))
+	s.NoError(util.WriteFile(w.filesystem, "foo", []byte("foo"), 0o755))
 	w.Add("foo")
 	_, err = w.Commit("foo", &CommitOptions{Author: defaultSignature()})
 	s.NoError(err)
 
 	w, err = r.Worktree()
 	s.NoError(err)
-	s.NoError(util.WriteFile(w.Filesystem, "bar", []byte("bar"), 0o755))
+	s.NoError(util.WriteFile(w.filesystem, "bar", []byte("bar"), 0o755))
 	w.Add("bar")
 	_, err = w.Commit("bar", &CommitOptions{Author: defaultSignature()})
 	s.NoError(err)
@@ -410,7 +410,7 @@ func (s *WorktreeSuite) TestCheckout() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{
@@ -437,20 +437,20 @@ func (s *WorktreeSuite) TestCheckout() {
 func (s *WorktreeSuite) TestCheckoutForce() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
 	s.NoError(err)
 
-	w.Filesystem = memfs.New()
+	w.filesystem = newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS())
 
 	err = w.Checkout(&CheckoutOptions{
 		Force: true,
 	})
 	s.NoError(err)
 
-	entries, err := w.Filesystem.ReadDir("/")
+	entries, err := w.filesystem.ReadDir("/")
 	s.NoError(err)
 	s.Len(entries, 8)
 }
@@ -458,7 +458,7 @@ func (s *WorktreeSuite) TestCheckoutForce() {
 func (s *WorktreeSuite) TestCheckoutKeep() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{
@@ -473,8 +473,8 @@ func (s *WorktreeSuite) TestCheckoutKeep() {
 	})
 	s.NoError(err)
 
-	w.Filesystem = memfs.New()
-	f, err := w.Filesystem.Create("new-file.txt")
+	w.filesystem = newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS())
+	f, err := w.filesystem.Create("new-file.txt")
 	s.NoError(err)
 	_, err = f.Write([]byte("DUMMY"))
 	s.NoError(err)
@@ -490,7 +490,7 @@ func (s *WorktreeSuite) TestCheckoutKeep() {
 	})
 	s.NoError(err)
 
-	fi, err := w.Filesystem.Stat("new-file.txt")
+	fi, err := w.filesystem.Stat("new-file.txt")
 	s.NoError(err)
 	s.Equal(int64(5), fi.Size())
 }
@@ -508,12 +508,12 @@ func (s *WorktreeSuite) TestCheckoutSymlink() {
 	w, err := r.Worktree()
 	s.NoError(err)
 
-	w.Filesystem.Symlink("not-exists", "bar")
+	w.filesystem.Symlink("not-exists", "bar")
 	w.Add("bar")
 	w.Commit("foo", &CommitOptions{Author: defaultSignature()})
 
 	r.Storer.SetIndex(&index.Index{Version: 2})
-	w.Filesystem = osfs.New(filepath.Join(dir, "worktree-empty"))
+	w.filesystem = newWorktreeFilesystem(osfs.New(filepath.Join(dir, "worktree-empty")), defaultProtectNTFS(), defaultProtectHFS())
 
 	err = w.Checkout(&CheckoutOptions{})
 	s.NoError(err)
@@ -522,7 +522,7 @@ func (s *WorktreeSuite) TestCheckoutSymlink() {
 	s.NoError(err)
 	s.True(status.IsClean())
 
-	target, err := w.Filesystem.Readlink("bar")
+	target, err := w.filesystem.Readlink("bar")
 	s.Equal("not-exists", target)
 	s.NoError(err)
 }
@@ -577,7 +577,7 @@ func (s *WorktreeSuite) TestCheckoutCRLF() {
 		require.NoError(t, err)
 		require.True(t, status.IsClean(), status)
 
-		file, err := wt.Filesystem.Open("CHANGELOG")
+		file, err := wt.filesystem.Open("CHANGELOG")
 		require.NoError(t, err)
 
 		content, err := io.ReadAll(file)
@@ -616,7 +616,7 @@ func (s *WorktreeSuite) TestFilenameNormalization() {
 		s.Require().NoError(util.WriteFile(fs, path, []byte("foo"), 0o755))
 	}
 
-	writeFile(w.Filesystem, filename)
+	writeFile(w.filesystem, filename)
 	origHash, err := w.Add(filename)
 	s.NoError(err)
 	_, err = w.Commit("foo", &CommitOptions{Author: defaultSignature()})
@@ -632,11 +632,11 @@ func (s *WorktreeSuite) TestFilenameNormalization() {
 	s.NoError(err)
 	s.True(status.IsClean())
 
-	err = w.Filesystem.Remove(filename)
+	err = w.filesystem.Remove(filename)
 	s.NoError(err)
 
 	modFilename := norm.NFKD.String(filename)
-	writeFile(w.Filesystem, modFilename)
+	writeFile(w.filesystem, modFilename)
 
 	_, err = w.Add(filename)
 	s.NoError(err)
@@ -652,7 +652,7 @@ func (s *WorktreeSuite) TestFilenameNormalization() {
 	s.False(status.IsClean())
 
 	// Revert back the deletion of the first file.
-	writeFile(w.Filesystem, filename)
+	writeFile(w.filesystem, filename)
 	_, err = w.Add(filename)
 	s.NoError(err)
 
@@ -765,7 +765,7 @@ func (s *WorktreeSuite) TestCheckoutIndexMem() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -793,7 +793,7 @@ func (s *WorktreeSuite) TestCheckoutIndexOS() {
 
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -820,7 +820,7 @@ func (s *WorktreeSuite) TestCheckoutIndexOS() {
 func (s *WorktreeSuite) TestCheckoutBranch() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{
@@ -840,10 +840,10 @@ func (s *WorktreeSuite) TestCheckoutBranch() {
 func (s *WorktreeSuite) TestCheckoutBranchUntracked() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
-	uf, err := w.Filesystem.Create("untracked_file")
+	uf, err := w.filesystem.Create("untracked_file")
 	s.NoError(err)
 	_, err = uf.Write([]byte("don't delete me"))
 	s.NoError(err)
@@ -862,7 +862,7 @@ func (s *WorktreeSuite) TestCheckoutBranchUntracked() {
 	// The untracked file should still be there, so it's not clean
 	s.False(status.IsClean())
 	s.True(status.IsUntracked("untracked_file"))
-	err = w.Filesystem.Remove("untracked_file")
+	err = w.filesystem.Remove("untracked_file")
 	s.NoError(err)
 	status, err = w.Status()
 	s.NoError(err)
@@ -875,7 +875,7 @@ func (s *WorktreeSuite) TestCheckoutBranchUntracked() {
 func (s *WorktreeSuite) TestCheckoutForceUntracked() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	// Populate the worktree first.
@@ -883,7 +883,7 @@ func (s *WorktreeSuite) TestCheckoutForceUntracked() {
 	s.Require().NoError(err)
 
 	// Create an untracked file.
-	uf, err := w.Filesystem.Create("untracked_file")
+	uf, err := w.filesystem.Create("untracked_file")
 	s.Require().NoError(err)
 	_, err = uf.Write([]byte("don't delete me"))
 	s.Require().NoError(err)
@@ -926,7 +926,7 @@ func (s *WorktreeSuite) TestCheckoutForceSparseUntrackedPreserved() {
 	s.Require().NotEmpty(goFiles, "expected tracked files in go/ after sparse checkout")
 
 	// Create an untracked file inside the soon-to-be-removed sparse directory.
-	uf, err := w.Filesystem.Create("go/untracked.txt")
+	uf, err := w.filesystem.Create("go/untracked.txt")
 	s.Require().NoError(err)
 	_, err = uf.Write([]byte("do not delete me"))
 	s.Require().NoError(err)
@@ -941,12 +941,12 @@ func (s *WorktreeSuite) TestCheckoutForceSparseUntrackedPreserved() {
 	}))
 
 	// Untracked file inside the removed sparse directory must be preserved.
-	_, statErr := w.Filesystem.Stat("go/untracked.txt")
+	_, statErr := w.filesystem.Stat("go/untracked.txt")
 	s.Require().NoError(statErr, "untracked file inside removed sparse dir was deleted by Force checkout")
 
 	// Tracked files that moved out of the sparse set must be removed from disk.
 	firstGoFile := filepath.Join("go", goFiles[0].Name())
-	_, statErr = w.Filesystem.Stat(firstGoFile)
+	_, statErr = w.filesystem.Stat(firstGoFile)
 	s.Require().Error(statErr, "tracked file %q in removed sparse dir should have been removed by Force checkout", firstGoFile)
 
 	// The "php" directory must now be present and populated.
@@ -958,7 +958,7 @@ func (s *WorktreeSuite) TestCheckoutForceSparseUntrackedPreserved() {
 func (s *WorktreeSuite) TestCheckoutCreateWithHash() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{
@@ -981,7 +981,7 @@ func (s *WorktreeSuite) TestCheckoutCreateWithHash() {
 func (s *WorktreeSuite) TestCheckoutCreate() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{
@@ -1003,7 +1003,7 @@ func (s *WorktreeSuite) TestCheckoutCreate() {
 func (s *WorktreeSuite) TestCheckoutBranchAndHash() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{
@@ -1017,7 +1017,7 @@ func (s *WorktreeSuite) TestCheckoutBranchAndHash() {
 func (s *WorktreeSuite) TestCheckoutCreateMissingBranch() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{
@@ -1030,7 +1030,7 @@ func (s *WorktreeSuite) TestCheckoutCreateMissingBranch() {
 func (s *WorktreeSuite) TestCheckoutCreateInvalidBranch() {
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	for _, name := range []plumbing.ReferenceName{
@@ -1163,7 +1163,7 @@ func (s *WorktreeSuite) TestStatus() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	status, err := w.Status()
@@ -1258,7 +1258,7 @@ func (s *WorktreeSuite) TestStatusUnmodified() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -1285,7 +1285,7 @@ func (s *WorktreeSuite) TestReset() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	commit := plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9")
@@ -1313,7 +1313,7 @@ func (s *WorktreeSuite) TestResetWithUntracked() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	commit := plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9")
@@ -1345,7 +1345,7 @@ func (s *WorktreeSuite) TestResetSoft() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	commit := plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9")
@@ -1370,7 +1370,7 @@ func (s *WorktreeSuite) TestResetMixed() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	commit := plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9")
@@ -1395,7 +1395,7 @@ func (s *WorktreeSuite) TestResetMerge() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	commitA := plumbing.NewHash("918c48b83bd081e863dbe1b80f8998f058cd8294")
@@ -1430,7 +1430,7 @@ func (s *WorktreeSuite) TestResetKeep() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	commit := plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9")
@@ -1467,7 +1467,7 @@ func (s *WorktreeSuite) TestResetKeepConflict() {
 	commitA := CommitNewFile(s.T(), r, "tracked.txt")
 
 	// Advance to commitB by changing tracked.txt.
-	s.Require().NoError(util.WriteFile(w.Filesystem, "tracked.txt", []byte("version B"), 0o644))
+	s.Require().NoError(util.WriteFile(w.filesystem, "tracked.txt", []byte("version B"), 0o644))
 	_, err = w.Add("tracked.txt")
 	s.Require().NoError(err)
 	commitB, err := w.Commit("second", &CommitOptions{Author: defaultSignature()})
@@ -1479,7 +1479,7 @@ func (s *WorktreeSuite) TestResetKeepConflict() {
 
 	// Make a local (unstaged) modification to tracked.txt, which differs
 	// between commitA and commitB.
-	s.Require().NoError(util.WriteFile(w.Filesystem, "tracked.txt", []byte("local change"), 0o644))
+	s.Require().NoError(util.WriteFile(w.filesystem, "tracked.txt", []byte("local change"), 0o644))
 
 	// KeepReset to commitB should be aborted.
 	err = w.Reset(&ResetOptions{Mode: KeepReset, Commit: commitB})
@@ -1497,7 +1497,7 @@ func (s *WorktreeSuite) TestResetKeepUntrackedPreserved() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	commit := plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9")
@@ -1523,7 +1523,7 @@ func (s *WorktreeSuite) TestResetKeepSparselyUntracked() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	// Sparse-populate the "go" directory first.
@@ -1573,7 +1573,7 @@ func (s *WorktreeSuite) TestResetKeepConflictNotOnSparseExcluded() {
 	commitA := CommitNewFile(s.T(), r, "tracked.txt")
 
 	// commitB: change tracked.txt (so it appears in the tree-to-tree diff)
-	s.Require().NoError(util.WriteFile(w.Filesystem, "tracked.txt", []byte("version B"), 0o644))
+	s.Require().NoError(util.WriteFile(w.filesystem, "tracked.txt", []byte("version B"), 0o644))
 	_, err = w.Add("tracked.txt")
 	s.Require().NoError(err)
 	commitB, err := w.Commit("second", &CommitOptions{Author: defaultSignature()})
@@ -1614,7 +1614,7 @@ func (s *WorktreeSuite) TestResetKeepSparseConflict() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	// Sparse-populate the "go" directory so its tracked files are on disk.
@@ -1650,7 +1650,7 @@ func (s *WorktreeSuite) TestResetKeepUntrackedOverwrite() {
 	commitA := CommitNewFile(s.T(), r, "tracked.txt")
 
 	// commitB: add new.txt alongside tracked.txt.
-	s.Require().NoError(util.WriteFile(w.Filesystem, "new.txt", []byte("tracked content"), 0o644))
+	s.Require().NoError(util.WriteFile(w.filesystem, "new.txt", []byte("tracked content"), 0o644))
 	_, err = w.Add("new.txt")
 	s.Require().NoError(err)
 	commitB, err := w.Commit("add new.txt", &CommitOptions{Author: defaultSignature()})
@@ -1661,7 +1661,7 @@ func (s *WorktreeSuite) TestResetKeepUntrackedOverwrite() {
 	s.Require().NoError(err)
 
 	// Place an untracked file at the path that commitB will insert.
-	s.Require().NoError(util.WriteFile(w.Filesystem, "new.txt", []byte("untracked content"), 0o644))
+	s.Require().NoError(util.WriteFile(w.filesystem, "new.txt", []byte("untracked content"), 0o644))
 
 	// KeepReset to commitB must abort because new.txt would be overwritten.
 	err = w.Reset(&ResetOptions{Mode: KeepReset, Commit: commitB})
@@ -1677,7 +1677,7 @@ func (s *WorktreeSuite) TestResetHard() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	commit := plumbing.NewHash("35e85108805c84807bc66a02d91535e1e24b38b9")
@@ -1704,7 +1704,7 @@ func (s *WorktreeSuite) TestResetHardSubFolders() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -1742,7 +1742,7 @@ func (s *WorktreeSuite) TestResetHardWithGitIgnore() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -1786,7 +1786,7 @@ func (s *WorktreeSuite) TestResetSparsely() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	sparseResetDirs := []string{"php"}
@@ -1809,7 +1809,7 @@ func (s *WorktreeSuite) TestResetSparselyInvalidDir() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	tests := []struct {
@@ -1850,7 +1850,7 @@ func (s *WorktreeSuite) TestStatusAfterCheckout() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -1865,7 +1865,7 @@ func (s *WorktreeSuite) TestStatusAfterSparseCheckout() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{
@@ -1884,7 +1884,7 @@ func (s *WorktreeSuite) TestStatusModified() {
 
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -1907,7 +1907,7 @@ func (s *WorktreeSuite) TestStatusIgnored() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	w.Checkout(&CheckoutOptions{})
@@ -1954,13 +1954,13 @@ func (s *WorktreeSuite) TestStatusUntracked() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
 	s.NoError(err)
 
-	f, err := w.Filesystem.Create("foo")
+	f, err := w.filesystem.Create("foo")
 	s.NoError(err)
 	s.Nil(f.Close())
 
@@ -1975,7 +1975,7 @@ func (s *WorktreeSuite) TestStatusDeleted() {
 
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})
@@ -2245,7 +2245,7 @@ func (s *WorktreeSuite) TestAddUntracked() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2255,7 +2255,7 @@ func (s *WorktreeSuite) TestAddUntracked() {
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = util.WriteFile(w.Filesystem, "foo", []byte("FOO"), 0o755)
+	err = util.WriteFile(w.filesystem, "foo", []byte("FOO"), 0o755)
 	s.NoError(err)
 
 	hash, err := w.Add("foo")
@@ -2294,7 +2294,7 @@ func (s *WorktreeSuite) TestAddAbsolutePath() {
 	w, err := r.Worktree()
 	s.NoError(err)
 
-	err = util.WriteFile(w.Filesystem, "foo.txt", []byte("FOO"), 0o644)
+	err = util.WriteFile(w.filesystem, "foo.txt", []byte("FOO"), 0o644)
 	s.NoError(err)
 
 	absPath := filepath.Join(dir, "foo.txt")
@@ -2330,7 +2330,7 @@ func (s *WorktreeSuite) TestAddCRLF() {
 		wt, err := r.Worktree()
 		require.NoError(t, err)
 
-		err = util.WriteFile(wt.Filesystem, "foo", []byte("FOO\r\n"), 0o755)
+		err = util.WriteFile(wt.filesystem, "foo", []byte("FOO\r\n"), 0o755)
 		require.NoError(t, err)
 
 		h, err := wt.Add("foo")
@@ -2365,7 +2365,7 @@ func (s *WorktreeSuite) TestIgnored() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	w.Excludes = make([]gitignore.Pattern, 0)
@@ -2378,7 +2378,7 @@ func (s *WorktreeSuite) TestIgnored() {
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = util.WriteFile(w.Filesystem, "foo", []byte("FOO"), 0o755)
+	err = util.WriteFile(w.filesystem, "foo", []byte("FOO"), 0o755)
 	s.NoError(err)
 
 	status, err := w.Status()
@@ -2397,7 +2397,7 @@ func (s *WorktreeSuite) TestExcludedNoGitignore() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          r,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	_, err := fs.Open(".gitignore")
@@ -2406,7 +2406,7 @@ func (s *WorktreeSuite) TestExcludedNoGitignore() {
 	w.Excludes = make([]gitignore.Pattern, 0)
 	w.Excludes = append(w.Excludes, gitignore.ParsePattern("foo", nil))
 
-	err = util.WriteFile(w.Filesystem, "foo", []byte("FOO"), 0o755)
+	err = util.WriteFile(w.filesystem, "foo", []byte("FOO"), 0o755)
 	s.NoError(err)
 
 	status, err := w.Status()
@@ -2422,7 +2422,7 @@ func (s *WorktreeSuite) TestAddModified() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2432,7 +2432,7 @@ func (s *WorktreeSuite) TestAddModified() {
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = util.WriteFile(w.Filesystem, "LICENSE", []byte("FOO"), 0o644)
+	err = util.WriteFile(w.filesystem, "LICENSE", []byte("FOO"), 0o644)
 	s.NoError(err)
 
 	hash, err := w.Add("LICENSE")
@@ -2461,7 +2461,7 @@ func (s *WorktreeSuite) TestAddUnmodified() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2476,7 +2476,7 @@ func (s *WorktreeSuite) TestAddRemoved() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2486,7 +2486,7 @@ func (s *WorktreeSuite) TestAddRemoved() {
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = w.Filesystem.Remove("LICENSE")
+	err = w.filesystem.Remove("LICENSE")
 	s.NoError(err)
 
 	hash, err := w.Add("LICENSE")
@@ -2510,7 +2510,7 @@ func (s *WorktreeSuite) testAddRemovedInDirectory(addPath string, expectedJSONSt
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2520,10 +2520,10 @@ func (s *WorktreeSuite) testAddRemovedInDirectory(addPath string, expectedJSONSt
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = w.Filesystem.Remove("go/example.go")
+	err = w.filesystem.Remove("go/example.go")
 	s.NoError(err)
 
-	err = w.Filesystem.Remove("json/short.json")
+	err = w.filesystem.Remove("json/short.json")
 	s.NoError(err)
 
 	hash, err := w.Add(addPath)
@@ -2593,7 +2593,7 @@ func (s *WorktreeSuite) TestAddDirectory() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2603,9 +2603,9 @@ func (s *WorktreeSuite) TestAddDirectory() {
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = util.WriteFile(w.Filesystem, "qux/foo", []byte("FOO"), 0o755)
+	err = util.WriteFile(w.filesystem, "qux/foo", []byte("FOO"), 0o755)
 	s.NoError(err)
-	err = util.WriteFile(w.Filesystem, "qux/baz/bar", []byte("BAR"), 0o755)
+	err = util.WriteFile(w.filesystem, "qux/baz/bar", []byte("BAR"), 0o755)
 	s.NoError(err)
 
 	h, err := w.Add("qux")
@@ -2650,7 +2650,7 @@ func (s *WorktreeSuite) TestAddAll() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2660,13 +2660,13 @@ func (s *WorktreeSuite) TestAddAll() {
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = util.WriteFile(w.Filesystem, "file1", []byte("file1"), 0o644)
+	err = util.WriteFile(w.filesystem, "file1", []byte("file1"), 0o644)
 	s.NoError(err)
 
-	err = util.WriteFile(w.Filesystem, "file2", []byte("file2"), 0o644)
+	err = util.WriteFile(w.filesystem, "file2", []byte("file2"), 0o644)
 	s.NoError(err)
 
-	err = util.WriteFile(w.Filesystem, "file3", []byte("ignore me"), 0o644)
+	err = util.WriteFile(w.filesystem, "file3", []byte("ignore me"), 0o644)
 	s.NoError(err)
 
 	w.Excludes = make([]gitignore.Pattern, 0)
@@ -2696,7 +2696,7 @@ func (s *WorktreeSuite) TestAddGlob() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2706,14 +2706,14 @@ func (s *WorktreeSuite) TestAddGlob() {
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = util.WriteFile(w.Filesystem, "qux/qux", []byte("QUX"), 0o755)
+	err = util.WriteFile(w.filesystem, "qux/qux", []byte("QUX"), 0o755)
 	s.NoError(err)
-	err = util.WriteFile(w.Filesystem, "qux/baz", []byte("BAZ"), 0o755)
+	err = util.WriteFile(w.filesystem, "qux/baz", []byte("BAZ"), 0o755)
 	s.NoError(err)
-	err = util.WriteFile(w.Filesystem, "qux/bar/baz", []byte("BAZ"), 0o755)
+	err = util.WriteFile(w.filesystem, "qux/bar/baz", []byte("BAZ"), 0o755)
 	s.NoError(err)
 
-	err = w.AddWithOptions(&AddOptions{Glob: w.Filesystem.Join("qux", "b*")})
+	err = w.AddWithOptions(&AddOptions{Glob: w.filesystem.Join("qux", "b*")})
 	s.NoError(err)
 
 	idx, err = w.r.Storer.Index()
@@ -2749,7 +2749,7 @@ func (s *WorktreeSuite) TestAddFilenameStartingWithDot() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2759,11 +2759,11 @@ func (s *WorktreeSuite) TestAddFilenameStartingWithDot() {
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = util.WriteFile(w.Filesystem, "qux", []byte("QUX"), 0o755)
+	err = util.WriteFile(w.filesystem, "qux", []byte("QUX"), 0o755)
 	s.NoError(err)
-	err = util.WriteFile(w.Filesystem, "baz", []byte("BAZ"), 0o755)
+	err = util.WriteFile(w.filesystem, "baz", []byte("BAZ"), 0o755)
 	s.NoError(err)
-	err = util.WriteFile(w.Filesystem, "foo/bar/baz", []byte("BAZ"), 0o755)
+	err = util.WriteFile(w.filesystem, "foo/bar/baz", []byte("BAZ"), 0o755)
 	s.NoError(err)
 
 	_, err = w.Add("./qux")
@@ -2816,7 +2816,7 @@ func (s *WorktreeSuite) testAddSkipStatus(filePath string, expectedEntries int, 
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2826,7 +2826,7 @@ func (s *WorktreeSuite) testAddSkipStatus(filePath string, expectedEntries int, 
 	s.NoError(err)
 	s.Len(idx.Entries, 9)
 
-	err = util.WriteFile(w.Filesystem, filePath, []byte("file1"), 0o644)
+	err = util.WriteFile(w.filesystem, filePath, []byte("file1"), 0o644)
 	s.NoError(err)
 
 	err = w.AddWithOptions(&AddOptions{Path: filePath, SkipStatus: true})
@@ -2861,7 +2861,7 @@ func (s *WorktreeSuite) TestAddSkipStatusNonModifiedPath() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2895,7 +2895,7 @@ func (s *WorktreeSuite) TestAddSkipStatusWithIgnoredPath() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2947,7 +2947,7 @@ func (s *WorktreeSuite) TestRemove() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2967,7 +2967,7 @@ func (s *WorktreeSuite) TestRemoveNotExistentEntry() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2982,7 +2982,7 @@ func (s *WorktreeSuite) TestRemoveDirectory() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -2998,7 +2998,7 @@ func (s *WorktreeSuite) TestRemoveDirectory() {
 	s.Equal(Deleted, status.File("json/long.json").Staging)
 	s.Equal(Deleted, status.File("json/short.json").Staging)
 
-	_, err = w.Filesystem.Stat("json")
+	_, err = w.filesystem.Stat("json")
 	s.True(os.IsNotExist(err))
 }
 
@@ -3006,13 +3006,13 @@ func (s *WorktreeSuite) TestRemoveDirectoryUntracked() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
 	s.NoError(err)
 
-	err = util.WriteFile(w.Filesystem, "json/foo", []byte("FOO"), 0o755)
+	err = util.WriteFile(w.filesystem, "json/foo", []byte("FOO"), 0o755)
 	s.NoError(err)
 
 	hash, err := w.Remove("json")
@@ -3026,7 +3026,7 @@ func (s *WorktreeSuite) TestRemoveDirectoryUntracked() {
 	s.Equal(Deleted, status.File("json/short.json").Staging)
 	s.Equal(Untracked, status.File("json/foo").Staging)
 
-	_, err = w.Filesystem.Stat("json")
+	_, err = w.filesystem.Stat("json")
 	s.NoError(err)
 }
 
@@ -3034,7 +3034,7 @@ func (s *WorktreeSuite) TestRemoveDeletedFromWorktree() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -3057,13 +3057,13 @@ func (s *WorktreeSuite) TestRemoveGlob() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
 	s.NoError(err)
 
-	err = w.RemoveGlob(w.Filesystem.Join("json", "l*"))
+	err = w.RemoveGlob(w.filesystem.Join("json", "l*"))
 	s.NoError(err)
 
 	status, err := w.Status()
@@ -3076,7 +3076,7 @@ func (s *WorktreeSuite) TestRemoveGlobDirectory() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -3091,7 +3091,7 @@ func (s *WorktreeSuite) TestRemoveGlobDirectory() {
 	s.Equal(Deleted, status.File("json/short.json").Staging)
 	s.Equal(Deleted, status.File("json/long.json").Staging)
 
-	_, err = w.Filesystem.Stat("json")
+	_, err = w.filesystem.Stat("json")
 	s.True(os.IsNotExist(err))
 }
 
@@ -3099,7 +3099,7 @@ func (s *WorktreeSuite) TestRemoveGlobDirectoryDeleted() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -3108,7 +3108,7 @@ func (s *WorktreeSuite) TestRemoveGlobDirectoryDeleted() {
 	err = fs.Remove("json/short.json")
 	s.NoError(err)
 
-	err = util.WriteFile(w.Filesystem, "json/foo", []byte("FOO"), 0o755)
+	err = util.WriteFile(w.filesystem, "json/foo", []byte("FOO"), 0o755)
 	s.NoError(err)
 
 	err = w.RemoveGlob("js*")
@@ -3125,7 +3125,7 @@ func (s *WorktreeSuite) TestMove() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -3146,7 +3146,7 @@ func (s *WorktreeSuite) TestMoveNotExistentEntry() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -3161,7 +3161,7 @@ func (s *WorktreeSuite) TestMoveToExistent() {
 	fs := memfs.New()
 	w := &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{Force: true})
@@ -3238,7 +3238,7 @@ func (s *WorktreeSuite) TestCleanBare() {
 	wt, err := r.Worktree()
 	s.NoError(err)
 
-	_, err = wt.Filesystem.Lstat(".")
+	_, err = wt.filesystem.Lstat(".")
 	s.NoError(err)
 
 	// Clean with Dir: true.
@@ -3246,7 +3246,7 @@ func (s *WorktreeSuite) TestCleanBare() {
 	s.NoError(err)
 
 	// Root worktree directory must remain after cleaning
-	_, err = wt.Filesystem.Lstat(".")
+	_, err = wt.filesystem.Lstat(".")
 	s.NoError(err)
 }
 
@@ -3810,86 +3810,6 @@ func TestTreeContainsDirs(t *testing.T) {
 	}
 }
 
-func TestValidPath(t *testing.T) {
-	t.Parallel()
-	type testcase struct {
-		path    string
-		wantErr bool
-	}
-
-	tests := []testcase{
-		{".git", true},
-		{".git/b", true},
-		{".git\\b", true},
-		{"git~1", true},
-		{"a/../b", true},
-		{"a\\..\\b", true},
-		{"/", true},
-		{"", true},
-		{".gitmodules", false},
-		{".gitignore", false},
-		{"a..b", false},
-		{".", false},
-		{"a/.git", false},
-		{"a\\.git", false},
-		{"a/.git/b", false},
-		{"a\\.git\\b", false},
-	}
-
-	if runtime.GOOS == "windows" {
-		tests = append(tests, []testcase{
-			{"\\\\a\\b", true},
-			{"C:\\a\\b", true},
-			{".git . . .", true},
-			{".git . . ", true},
-			{".git ", true},
-			{".git.", true},
-			{".git::$INDEX_ALLOCATION", true},
-		}...)
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.path, func(t *testing.T) {
-			t.Parallel()
-			err := validPath(tc.path)
-			if tc.wantErr {
-				assert.Error(t, err)
-			} else {
-				assert.NoError(t, err)
-			}
-		})
-	}
-}
-
-func TestWindowsValidPath(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		path string
-		want bool
-	}{
-		{".git", false},
-		{".git . . .", false},
-		{".git ", false},
-		{".git  ", false},
-		{".git . .", false},
-		{".git . .", false},
-		{".git::$INDEX_ALLOCATION", false},
-		{".git:", false},
-		{"a", true},
-		{"a\\b", true},
-		{"a/b", true},
-		{".gitm", true},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.path, func(t *testing.T) {
-			t.Parallel()
-			got := windowsValidPath(tc.path)
-			assert.Equal(t, tc.want, got)
-		})
-	}
-}
-
 var statusCodeNames = map[StatusCode]string{
 	Unmodified:         "Unmodified",
 	Untracked:          "Untracked",
@@ -3905,7 +3825,7 @@ func setupForRestore(s *WorktreeSuite) (fs billy.Filesystem, w *Worktree, names 
 	fs = memfs.New()
 	w = &Worktree{
 		r:          s.Repository,
-		Filesystem: fs,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
 	}
 
 	err := w.Checkout(&CheckoutOptions{})

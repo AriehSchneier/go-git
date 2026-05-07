@@ -41,12 +41,12 @@ func BenchmarkCloneLargeRepo(b *testing.B) {
 		wg.Go(func() {
 			for filePath := range fileChan {
 				dir := filepath.Dir(filePath)
-				err := sourceWt.Filesystem.MkdirAll(dir, 0o755)
+				err := sourceWt.filesystem.MkdirAll(dir, 0o755)
 				if err != nil {
 					b.Errorf("failed to create directory %s: %v", dir, err)
 					continue
 				}
-				err = util.WriteFile(sourceWt.Filesystem, filePath, content, 0o644)
+				err = util.WriteFile(sourceWt.filesystem, filePath, content, 0o644)
 				if err != nil {
 					b.Errorf("failed to write file %s: %v", filePath, err)
 				}
@@ -121,12 +121,12 @@ func BenchmarkCloneDeepRepo(b *testing.B) {
 		wg.Go(func() {
 			for filePath := range fileChan {
 				dir := filepath.Dir(filePath)
-				err := sourceWt.Filesystem.MkdirAll(dir, 0o755)
+				err := sourceWt.filesystem.MkdirAll(dir, 0o755)
 				if err != nil {
 					b.Errorf("failed to create directory %s: %v", dir, err)
 					continue
 				}
-				err = util.WriteFile(sourceWt.Filesystem, filePath, content, 0o644)
+				err = util.WriteFile(sourceWt.filesystem, filePath, content, 0o644)
 				if err != nil {
 					b.Errorf("failed to write file %s: %v", filePath, err)
 				}
