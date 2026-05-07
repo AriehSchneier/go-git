@@ -339,6 +339,54 @@ func TestLazyIndexInitErrors(t *testing.T) {
 	}
 }
 
+func TestMemoryIndexOffset64OutOfRange(t *testing.T) {
+	t.Parallel()
+
+	idxBytes, h := buildOOBOffset64Idx()
+
+	idx := new(MemoryIndex)
+	d := NewDecoder(bytes.NewReader(idxBytes), hash.New(crypto.SHA1))
+	require.NoError(t, d.Decode(idx))
+
+	_, err := idx.FindOffset(h)
+	require.ErrorIs(t, err, ErrMalformedIdxFile)
+
+	_, err = idx.FindHash(0)
+	require.ErrorIs(t, err, ErrMalformedIdxFile)
+
+	iter, err := idx.Entries()
+	require.NoError(t, err)
+	_, err = iter.Next()
+	require.ErrorIs(t, err, ErrMalformedIdxFile)
+	_ = iter.Close()
+}
+
+func TestLazyIndexOffset64OutOfRange(t *testing.T) {
+	t.Parallel()
+
+	idxBytes, h := buildOOBOffset64Idx()
+
+	const hashSize = 20
+
+	var revBuf bytes.Buffer
+	revBuf.Write([]byte{'R', 'I', 'D', 'X'})
+	_ = binary.Write(&revBuf, binary.BigEndian, uint32(1))
+	_ = binary.Write(&revBuf, binary.BigEndian, uint32(1)) // sha1 hash function id
+	_ = binary.Write(&revBuf, binary.BigEndian, uint32(0)) // single rev entry
+	revBuf.Write(make([]byte, hashSize*2))
+
+	packHash := extractPackHash(idxBytes, hashSize)
+	openIdx := readerAtOpener(idxBytes)
+	openRev := readerAtOpener(revBuf.Bytes())
+
+	idx, err := NewLazyIndex(openIdx, openRev, packHash)
+	require.NoError(t, err)
+	defer idx.Close()
+
+	_, err = idx.FindOffset(h)
+	require.ErrorIs(t, err, ErrMalformedIdxFile)
+}
+
 func extractPackHash(idx []byte, hashSize int) plumbing.Hash {
 	var h plumbing.Hash
 	h.ResetBySize(hashSize)
