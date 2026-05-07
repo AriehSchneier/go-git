@@ -27,6 +27,25 @@ var (
 	ErrDeltaNotCached = errors.New("delta could not be found in cache")
 )
 
+// maxObjectPreallocBytes caps the up-front size hint passed to
+// bytes.Buffer.Grow when staging an object's contents, so a malformed length
+// cannot trigger a huge or out-of-range allocation. The buffer still grows
+// dynamically as data is written; this is purely a hint cap.
+const maxObjectPreallocBytes = 1 << 30 // 1 GiB
+
+// growHint returns a non-negative int64 size, clamped to a sane upper bound,
+// suitable for passing to bytes.Buffer.Grow.
+func growHint(n int64) int {
+	switch {
+	case n <= 0:
+		return 0
+	case n > maxObjectPreallocBytes:
+		return maxObjectPreallocBytes
+	default:
+		return int(n)
+	}
+}
+
 // Parser decodes a packfile and calls any observer associated to it. Is used
 // to generate indexes.
 type Parser struct {
@@ -309,7 +328,7 @@ func (p *Parser) parentReader(parent *ObjectHeader) (io.ReaderAt, error) {
 				if parent.content == nil {
 					parent.content = sync.GetBytesBuffer()
 				}
-				parent.content.Grow(int(parent.Size))
+				parent.content.Grow(growHint(parent.Size))
 
 				_, err = ioutil.CopyBufferPool(parent.content, r)
 				if err == nil {
@@ -334,7 +353,7 @@ func (p *Parser) parentReader(parent *ObjectHeader) (io.ReaderAt, error) {
 	if parent.content == nil {
 		parent.content = sync.GetBytesBuffer()
 	}
-	parent.content.Grow(int(parent.Size))
+	parent.content.Grow(growHint(parent.Size))
 
 	err := p.scanner.inflateContent(parent.ContentOffset, parent.content)
 	if err != nil {

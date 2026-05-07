@@ -240,12 +240,18 @@ func patchDelta(dst *bytes.Buffer, src, delta []byte) error {
 		return ErrInvalidDelta
 	}
 
-	srcSz, delta := packutil.DecodeLEB128(delta)
+	srcSz, delta, err := packutil.DecodeLEB128(delta)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDelta, err)
+	}
 	if srcSz != uint(len(src)) {
 		return ErrInvalidDelta
 	}
 
-	targetSz, delta := packutil.DecodeLEB128(delta)
+	targetSz, delta, err := packutil.DecodeLEB128(delta)
+	if err != nil {
+		return fmt.Errorf("%w: %w", ErrInvalidDelta, err)
+	}
 	remainingTargetSz := targetSz
 
 	var cmd byte
@@ -332,9 +338,10 @@ func patchDeltaWriter(dst io.Writer, base io.ReaderAt, delta io.Reader,
 	}
 
 	// Avoid several interactions expanding the buffer, which can be quite
-	// inefficient on large deltas.
+	// inefficient on large deltas. The hint is clamped because targetSz
+	// is decoded from untrusted input and Grow takes a non-negative int.
 	if b, ok := dst.(*bytes.Buffer); ok {
-		b.Grow(int(targetSz))
+		b.Grow(int(min(targetSz, maxPatchPreemptionSize)))
 	}
 
 	// If header still needs to be written, caller will provide

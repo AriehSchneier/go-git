@@ -368,6 +368,9 @@ func objectEntry(r *Scanner) (stateFn, error) {
 
 	size, err := packutil.VariableLengthSize(b[0], r)
 	if err != nil {
+		if errors.Is(err, packutil.ErrLengthOverflow) {
+			return nil, fmt.Errorf("%w: %w", ErrMalformedPackfile, err)
+		}
 		return nil, err
 	}
 
@@ -387,6 +390,13 @@ func objectEntry(r *Scanner) (stateFn, error) {
 			no, err := binary.ReadVariableWidthInt(r.scannerReader)
 			if err != nil {
 				return nil, err
+			}
+			// An OFS-delta references a base object that appears
+			// earlier in the pack; the negative offset must be
+			// strictly positive and not larger than the current
+			// object's offset.
+			if no <= 0 || no > oh.Offset {
+				return nil, fmt.Errorf("%w: invalid OFS delta offset", ErrMalformedPackfile)
 			}
 			oh.OffsetReference = oh.Offset - no
 		} else {

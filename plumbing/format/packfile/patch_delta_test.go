@@ -1,12 +1,23 @@
 package packfile
 
 import (
+	"bytes"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	packutil "github.com/go-git/go-git/v6/plumbing/format/packfile/util"
 )
+
+func TestDecodeLEB128Overflow(t *testing.T) {
+	t.Parallel()
+
+	input := append(bytes.Repeat([]byte{0x80}, 11), 0x01)
+
+	_, _, err := packutil.DecodeLEB128(input)
+	require.ErrorIs(t, err, packutil.ErrLengthOverflow)
+}
 
 func TestDecodeLEB128(t *testing.T) {
 	t.Parallel()
@@ -65,7 +76,8 @@ func TestDecodeLEB128(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 
-			gotNum, gotRest := packutil.DecodeLEB128(tc.input)
+			gotNum, gotRest, err := packutil.DecodeLEB128(tc.input)
+			assert.NoError(t, err)
 			assert.Equal(t, tc.want, gotNum, "decoded number mismatch")
 			assert.Equal(t, tc.wantRest, gotRest, "remaining bytes mismatch")
 		})

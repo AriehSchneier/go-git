@@ -1,6 +1,9 @@
 package packfile_test
 
 import (
+	"bytes"
+	"crypto/sha1"
+	"encoding/binary"
 	"io"
 	"os"
 	"reflect"
@@ -428,5 +431,30 @@ func TestMalformedPack(t *testing.T) {
 	parser := packfile.NewParser(scanner)
 
 	_, err = parser.Parse()
+	require.ErrorContains(t, err, "malformed pack")
+}
+
+func TestParserRejectsOverflowingObjectHeader(t *testing.T) {
+	t.Parallel()
+
+	// Build a minimal pack whose first (and only) object header advertises
+	// a variable-length size with enough continuation bytes that the
+	// running shift would exceed what a uint64 can hold. The decoder must
+	// reject this as malformed input rather than propagate a value that
+	// later flows into a buffer allocation.
+	var body bytes.Buffer
+	body.WriteString("PACK")
+	_ = binary.Write(&body, binary.BigEndian, uint32(2))
+	_ = binary.Write(&body, binary.BigEndian, uint32(1))
+	body.WriteByte(0x90) // type=commit, continuation=1, low nibble=0
+	body.Write(bytes.Repeat([]byte{0x80}, 9))
+
+	sum := sha1.Sum(body.Bytes())
+	body.Write(sum[:])
+
+	parser := packfile.NewParser(bytes.NewReader(body.Bytes()))
+
+	_, err := parser.Parse()
+	require.Error(t, err)
 	require.ErrorContains(t, err, "malformed pack")
 }
