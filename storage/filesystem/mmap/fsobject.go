@@ -180,6 +180,9 @@ func (o *ondemandObject) resolveMetadata() error {
 		if err != nil {
 			return fmt.Errorf("failed to read OFS delta offset: %w", err)
 		}
+		if negativeOffset <= 0 || negativeOffset > o.offset {
+			return fmt.Errorf("%w: invalid OFS delta offset", packfile.ErrMalformedPackfile)
+		}
 		baseOffset := uint64(o.offset) - uint64(negativeOffset)
 		consumed := len(o.scanner.packMmap[pos:]) - reader.Len()
 		pos += int64(consumed)
@@ -224,6 +227,12 @@ func (o *ondemandObject) resolveMetadata() error {
 		return fmt.Errorf("failed to read target size from delta: %w", err)
 	}
 
+	// Decoder layer already rejects values that overflow uint, but treat
+	// any value beyond int64 range as malformed input rather than truncate.
+	if int64(targetSize) < 0 {
+		return fmt.Errorf("%w: delta target size out of range", packfile.ErrMalformedPackfile)
+	}
+
 	o.typ = base.Type()
 	o.size = int64(targetSize)
 
@@ -256,6 +265,9 @@ func (o *ondemandObject) resolveDelta() (io.ReadCloser, error) {
 		negativeOffset, err := binary.ReadVariableWidthInt(reader)
 		if err != nil {
 			return nil, fmt.Errorf("failed to read OFS delta offset: %w", err)
+		}
+		if negativeOffset <= 0 || negativeOffset > o.offset {
+			return nil, fmt.Errorf("%w: invalid OFS delta offset", packfile.ErrMalformedPackfile)
 		}
 		baseOffset = uint64(o.offset) - uint64(negativeOffset)
 
