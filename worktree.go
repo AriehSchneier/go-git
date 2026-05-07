@@ -1409,7 +1409,7 @@ func rmFileAndDirsIfEmpty(fs billy.Filesystem, name string) error {
 	}
 
 	dir := filepath.Dir(name)
-	for {
+	for dir != "." && dir != "" {
 		removed, err := removeDirIfEmpty(fs, dir)
 		if err != nil && !os.IsNotExist(err) {
 			return err
