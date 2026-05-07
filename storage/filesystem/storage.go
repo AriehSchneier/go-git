@@ -176,6 +176,8 @@ func (s *Storage) SetObjectFormat(of formatcfg.ObjectFormat) error {
 
 		s.ConfigStorage.objectFormat = of
 		s.ModuleStorage.objectFormat = of
+		s.options.ObjectFormat = of
+		s.oh = plumbing.FromObjectFormat(of)
 		s.hasher = plumbing.NewHasher(of, plumbing.AnyObject, 0)
 		s.h = s.hasher.Hash
 	}
