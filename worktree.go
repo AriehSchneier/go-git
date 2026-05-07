@@ -690,7 +690,14 @@ func (w *Worktree) resetWorktreeToTree(fromTree, toTree *object.Tree, files []st
 	// Delete means "on disk, not in index" = untracked → always skip.
 	// Note: SkipWorktree entries are invisible to the merkletrie diff;
 	// they are cleaned up in step 3 below.
-	worktreeChanges, err := w.diffStagingWithWorktree(true, false)
+	//
+	// excludeIgnoredChanges=true engages the filesystem walker's
+	// IgnoreMatcher so untracked entries inside gitignored directories are
+	// pruned at enumeration time rather than walked and then dropped as
+	// Delete actions. The observable result is unchanged because Delete
+	// actions are skipped by the loop below; the matcher only avoids the
+	// pointless lstat of every file under directories like node_modules.
+	worktreeChanges, err := w.diffStagingWithWorktree(true, true)
 	if err != nil {
 		return err
 	}
@@ -752,6 +759,13 @@ func (w *Worktree) resetWorktreeToTree(fromTree, toTree *object.Tree, files []st
 
 // resetWorktree updates the worktree to match the staging area.
 // files restricts the operation to the named paths; nil means all files.
+//
+// excludeIgnoredChanges is intentionally false here. The caller is
+// MergeReset, and files contains paths that were just removed from the
+// index by resetIndex. A tracked-but-gitignored path that was removed
+// from the index in this same Reset is no longer in idxMap, so the
+// noder's IgnoreMatcher would prune it from the walk and the Delete
+// action needed to remove it from disk would never be emitted.
 func (w *Worktree) resetWorktree(t *object.Tree, files []string) error {
 	changes, err := w.diffStagingWithWorktree(true, false)
 	if err != nil {
