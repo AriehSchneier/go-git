@@ -3,7 +3,6 @@ package idxfile
 import (
 	"bytes"
 	"crypto"
-	"crypto/sha1"
 	"encoding/base64"
 	"encoding/binary"
 	"io"
@@ -340,61 +339,10 @@ func TestLazyIndexInitErrors(t *testing.T) {
 	}
 }
 
-// buildOOBOffset64Idx constructs a structurally valid v2 idx file
-// whose single 32-bit offset entry is marked as a 64-bit overflow
-// (MSB set) but whose lower 31 bits point past the only allocated
-// 64-bit offset slot. The idx decodes successfully; using it must
-// fail with [ErrMalformedIdxFile] rather than panic.
-//
-// The returned hash is the name of the single object — pass it to
-// FindOffset to exercise the bug.
-func buildOOBOffset64Idx(t testing.TB) ([]byte, plumbing.Hash) {
-	t.Helper()
-
-	const hashSize = 20
-
-	var buf bytes.Buffer
-	buf.Write(idxHeader)
-	_ = binary.Write(&buf, binary.BigEndian, uint32(2))
-
-	// Fanout: one object whose first byte is 0x00, so all 256 entries
-	// hold the cumulative count 1.
-	for range 256 {
-		_ = binary.Write(&buf, binary.BigEndian, uint32(1))
-	}
-
-	// One name (any valid 20-byte hash with first byte 0x00).
-	name := make([]byte, hashSize)
-	name[hashSize-1] = 0x01
-	buf.Write(name)
-
-	// CRC32 (one entry, value irrelevant).
-	buf.Write(make([]byte, 4))
-
-	// Offset32: MSB set, lower 31 bits = 5 → references Offset64[40:48].
-	_ = binary.Write(&buf, binary.BigEndian, uint32(0x80000005))
-
-	// Offset64: a single 8-byte slot — the lookup above is out of range.
-	_ = binary.Write(&buf, binary.BigEndian, uint64(0x12345678))
-
-	// Pack checksum (zeros — the LazyIndex test passes the same value
-	// in as the expected pack hash so it matches).
-	buf.Write(make([]byte, hashSize))
-
-	// Idx checksum: SHA1 of everything written so far.
-	sum := sha1.Sum(buf.Bytes())
-	buf.Write(sum[:])
-
-	var h plumbing.Hash
-	h.ResetBySize(hashSize)
-	_, _ = h.Write(name)
-	return buf.Bytes(), h
-}
-
 func TestMemoryIndexOffset64OutOfRange(t *testing.T) {
 	t.Parallel()
 
-	idxBytes, h := buildOOBOffset64Idx(t)
+	idxBytes, h := buildOOBOffset64Idx()
 
 	idx := new(MemoryIndex)
 	d := NewDecoder(bytes.NewReader(idxBytes), hash.New(crypto.SHA1))
@@ -416,7 +364,7 @@ func TestMemoryIndexOffset64OutOfRange(t *testing.T) {
 func TestLazyIndexOffset64OutOfRange(t *testing.T) {
 	t.Parallel()
 
-	idxBytes, h := buildOOBOffset64Idx(t)
+	idxBytes, h := buildOOBOffset64Idx()
 
 	const hashSize = 20
 

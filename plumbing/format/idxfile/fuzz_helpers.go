@@ -2,7 +2,10 @@ package idxfile
 
 import (
 	"bytes"
+	"crypto/sha1"
 	"encoding/binary"
+
+	"github.com/go-git/go-git/v6/plumbing"
 )
 
 // buildMinimalIdx constructs a minimal valid idx v2 file with the given
@@ -61,6 +64,59 @@ func buildMinimalRev(count, hashSize int) []byte {
 
 	buf.Write(make([]byte, hashSize*2))
 	return buf.Bytes()
+}
+
+// buildOOBOffset64Idx constructs a structurally valid v2 idx file
+// whose single 32-bit offset entry is marked as a 64-bit overflow
+// (MSB set) but whose lower 31 bits point past the only allocated
+// 64-bit offset slot. The idx decodes successfully; using it must
+// fail with [ErrMalformedIdxFile] rather than crash.
+//
+// The returned hash is the name of the single object — pass it to
+// FindOffset to exercise the malformed-input path.
+//
+// Lives outside `_test.go` so the OSS-Fuzz harness, which does not
+// see other test files when extracting fuzz targets, can reach it
+// from FuzzMemoryIndex's seed corpus.
+func buildOOBOffset64Idx() ([]byte, plumbing.Hash) {
+	const hashSize = 20
+
+	var buf bytes.Buffer
+	buf.Write(idxHeader)
+	_ = binary.Write(&buf, binary.BigEndian, uint32(2))
+
+	// Fanout: one object whose first byte is 0x00, so all 256 entries
+	// hold the cumulative count 1.
+	for range 256 {
+		_ = binary.Write(&buf, binary.BigEndian, uint32(1))
+	}
+
+	// One name (any valid 20-byte hash with first byte 0x00).
+	name := make([]byte, hashSize)
+	name[hashSize-1] = 0x01
+	buf.Write(name)
+
+	// CRC32 (one entry, value irrelevant).
+	buf.Write(make([]byte, 4))
+
+	// Offset32: MSB set, lower 31 bits = 5 → references Offset64[40:48].
+	_ = binary.Write(&buf, binary.BigEndian, uint32(0x80000005))
+
+	// Offset64: a single 8-byte slot — the lookup above is out of range.
+	_ = binary.Write(&buf, binary.BigEndian, uint64(0x12345678))
+
+	// Pack checksum (zeros — the LazyIndex test passes the same value
+	// in as the expected pack hash so it matches).
+	buf.Write(make([]byte, hashSize))
+
+	// Idx checksum: SHA1 of everything written so far.
+	sum := sha1.Sum(buf.Bytes())
+	buf.Write(sum[:])
+
+	var h plumbing.Hash
+	h.ResetBySize(hashSize)
+	_, _ = h.Write(name)
+	return buf.Bytes(), h
 }
 
 // nopCloserReaderAt wraps a bytes.Reader to satisfy ReadAtCloser.
