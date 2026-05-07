@@ -166,6 +166,203 @@ func TestWorktreeFilesystemReturnsWorktreeFilesystem(t *testing.T) {
 	})
 }
 
+// assertOpsRejected exercises the read/write surface of the wrapper
+// against a dangerous path and asserts every operation is rejected. Used
+// across the symlink tests to demonstrate that the wrapper's protections
+// hold no matter how the call site got there.
+func assertOpsRejected(t *testing.T, fs *worktreeFilesystem, p string) {
+	t.Helper()
+
+	_, err := fs.Open(p)
+	assert.ErrorContains(t, err, "open:", "Open should reject %q", p)
+
+	_, err = fs.Create(p)
+	assert.ErrorContains(t, err, "create:", "Create should reject %q", p)
+
+	_, err = fs.OpenFile(p, os.O_RDWR, 0o644)
+	assert.ErrorContains(t, err, "openfile:", "OpenFile should reject %q", p)
+
+	err = fs.Remove(p)
+	assert.ErrorContains(t, err, "remove:", "Remove should reject %q", p)
+
+	_, err = fs.Lstat(p)
+	assert.ErrorContains(t, err, "lstat:", "Lstat should reject %q", p)
+
+	_, err = fs.Readlink(p)
+	assert.ErrorContains(t, err, "readlink:", "Readlink should reject %q", p)
+}
+
+func TestWorktreeFilesystemSymlinkRejectsDangerousPaths(t *testing.T) {
+	t.Parallel()
+
+	badPaths := []string{
+		".git",
+		".git/config",
+		".git/hooks/pre-commit",
+		"git~1/HEAD",
+		"../escape",
+		"a/../../etc/passwd",
+	}
+
+	for _, p := range badPaths {
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+
+			fs := newWorktreeFilesystem(memfs.New(), false, false)
+
+			err := fs.Symlink("safe-target.txt", p)
+			assert.ErrorContains(t, err, "symlink:", "Symlink should reject link name %q", p)
+
+			err = fs.Symlink(p, "safe-link")
+			assert.ErrorContains(t, err, "symlink:", "Symlink should reject target %q", p)
+
+			assertOpsRejected(t, fs, p)
+		})
+	}
+}
+
+func TestWorktreeFilesystemSymlinkAllowsValidLink(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, false)
+
+	require.NoError(t, fs.Symlink("target.txt", "link"))
+
+	got, err := fs.Readlink("link")
+	require.NoError(t, err)
+	assert.Equal(t, "target.txt", got)
+
+	assertOpsRejected(t, fs, ".git/config")
+}
+
+func TestWorktreeFilesystemReadlinkValidatesPath(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, false)
+	require.NoError(t, fs.Symlink("target.txt", "good-link"))
+
+	t.Run("rejects bad link path", func(t *testing.T) {
+		t.Parallel()
+		_, err := fs.Readlink(".git/config")
+		assert.ErrorContains(t, err, "readlink:")
+	})
+
+	t.Run("allows valid link path", func(t *testing.T) {
+		t.Parallel()
+		got, err := fs.Readlink("good-link")
+		require.NoError(t, err)
+		assert.Equal(t, "target.txt", got)
+	})
+
+	assertOpsRejected(t, fs, ".git/config")
+}
+
+// TestWorktreeFilesystemFollowsSymlinkOnOpen verifies that Open on a
+// symlink-named path follows the link via the underlying billy.Filesystem
+// for legitimate links, while still rejecting any operation that targets a
+// dangerous path directly.
+func TestWorktreeFilesystemFollowsSymlinkOnOpen(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, false)
+
+	require.NoError(t, util.WriteFile(fs, "data.txt", []byte("hello"), 0o644))
+	require.NoError(t, fs.Symlink("data.txt", "alias"))
+
+	f, err := fs.Open("alias")
+	require.NoError(t, err)
+	defer f.Close()
+
+	buf := make([]byte, 5)
+	n, err := f.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, "hello", string(buf[:n]))
+
+	assertOpsRejected(t, fs, ".git/config")
+}
+
+// TestWorktreeFilesystemRejectsOpsOnPreExistingDotGitSymlink covers the case
+// where a `.git` symlink was placed on the underlying filesystem before the
+// wrapper saw it (e.g. a crafted on-disk repository). The wrapper validates
+// the path the caller passed, so every operation against the `.git` name is
+// refused regardless of what the symlink resolves to.
+func TestWorktreeFilesystemRejectsOpsOnPreExistingDotGitSymlink(t *testing.T) {
+	t.Parallel()
+
+	mfs := memfs.New()
+
+	require.NoError(t, util.WriteFile(mfs, "real.txt", []byte("data"), 0o644))
+	require.NoError(t, mfs.Symlink("real.txt", ".git"))
+
+	fs := newWorktreeFilesystem(mfs, false, false)
+
+	assertOpsRejected(t, fs, ".git")
+	assertOpsRejected(t, fs, ".git/config")
+}
+
+// assertOpsAllowed verifies the round-trip read/write surface for a path
+// the wrapper should accept: write a payload, read it back, and Lstat it.
+func assertOpsAllowed(t *testing.T, fs *worktreeFilesystem, p string) {
+	t.Helper()
+
+	const payload = "payload"
+	require.NoError(t, util.WriteFile(fs, p, []byte(payload), 0o644))
+
+	f, err := fs.Open(p)
+	require.NoError(t, err, "Open should accept %q", p)
+	t.Cleanup(func() { _ = f.Close() })
+
+	buf := make([]byte, len(payload))
+	n, err := f.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, payload, string(buf[:n]))
+
+	fi, err := fs.Lstat(p)
+	require.NoError(t, err, "Lstat should accept %q", p)
+	assert.Equal(t, int64(len(payload)), fi.Size())
+}
+
+func TestWorktreeFilesystemAbsolutePaths(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name       string
+		path       string
+		wantReject bool
+	}{
+		{"reject /.git", "/.git", true},
+		{"reject /.git/config", "/.git/config", true},
+		{"reject /.git/objects/pack/file", "/.git/objects/pack/file", true},
+		{"reject /git~1/HEAD", "/git~1/HEAD", true},
+		{"reject /sub/.git/config", "/sub/.git/config", true},
+		{"allow /readme.md", "/readme.md", false},
+		{"allow /src/main.go", "/src/main.go", false},
+		{"allow /.gitignore", "/.gitignore", false},
+		{"allow /submodule/.git", "/submodule/.git", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fs := newWorktreeFilesystem(memfs.New(), false, false)
+
+			if tc.wantReject {
+				assertOpsRejected(t, fs, tc.path)
+
+				err := fs.Symlink("safe-target.txt", tc.path)
+				assert.ErrorContains(t, err, "symlink:", "Symlink should reject link %q", tc.path)
+
+				err = fs.Symlink(tc.path, "safe-link")
+				assert.ErrorContains(t, err, "symlink:", "Symlink should reject target %q", tc.path)
+				return
+			}
+
+			assertOpsAllowed(t, fs, tc.path)
+		})
+	}
+}
+
 // TestCherryPickPathValidationMatchesGit verifies that go-git and upstream
 // Git both reject cherry-picking commits that contain dangerous paths.
 //
