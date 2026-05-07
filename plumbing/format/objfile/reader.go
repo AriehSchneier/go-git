@@ -22,20 +22,25 @@ var (
 // Reader implements io.ReadCloser. Close should be called when finished with
 // the Reader. Close will not close the underlying io.Reader.
 type Reader struct {
-	multi  io.Reader
-	zlib   *sync.ZLibReader
-	hasher plumbing.Hasher
-	closed bool
+	multi        io.Reader
+	zlib         *sync.ZLibReader
+	hasher       plumbing.Hasher
+	objectFormat format.ObjectFormat
+	closed       bool
 }
 
-// NewReader returns a new Reader reading from r.
-func NewReader(r io.Reader) (*Reader, error) {
+// NewReader returns a new Reader reading from r and hashing objects with the
+// given object format.
+func NewReader(r io.Reader, objectFormat format.ObjectFormat) (*Reader, error) {
 	zlib, err := sync.GetZlibReader(r)
 	if err != nil {
 		return nil, packfile.ErrZLib.AddDetails("%s", err.Error())
 	}
 
-	return &Reader{zlib: zlib}, nil
+	return &Reader{
+		zlib:         zlib,
+		objectFormat: objectFormat,
+	}, nil
 }
 
 // Header reads the type and the size of object, and prepares the reader for read
@@ -88,7 +93,7 @@ func (r *Reader) readUntil(delim byte) ([]byte, error) {
 }
 
 func (r *Reader) prepareForRead(t plumbing.ObjectType, size int64) {
-	r.hasher = plumbing.NewHasher(format.SHA1, t, size)
+	r.hasher = plumbing.NewHasher(r.objectFormat, t, size)
 	r.multi = io.TeeReader(r.zlib, r.hasher)
 }
 

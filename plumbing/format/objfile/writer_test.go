@@ -35,7 +35,7 @@ func (s *SuiteWriter) TestWriteObjfile() {
 		testWriter(s.T(), buffer, hash, fixture.t, content)
 
 		// Read the data back in from the buffer to be sure it matches
-		testReader(s.T(), buffer, hash, fixture.t, content, com)
+		testReader(s.T(), buffer, hash, fixture.t, content, format.SHA1, com)
 	}
 }
 
@@ -56,6 +56,7 @@ func testWriter(t *testing.T, dest io.Writer, hash plumbing.Hash, o plumbing.Obj
 
 func (s *SuiteWriter) TestWriteObjfileSHA256Hash() {
 	content := []byte("hello sha256\n")
+	hash := plumbing.NewHash("2928cdcdc8b78c930378ceba09ce9ca8b888fbfe1bffb2cceb42bdff9421cb52")
 	buf := bytes.NewBuffer(nil)
 	w := NewWriter(buf, format.SHA256)
 
@@ -66,11 +67,9 @@ func (s *SuiteWriter) TestWriteObjfileSHA256Hash() {
 	s.NoError(err)
 	s.Equal(int64(len(content)), written)
 
-	s.Equal(
-		"2928cdcdc8b78c930378ceba09ce9ca8b888fbfe1bffb2cceb42bdff9421cb52",
-		w.Hash().String(),
-	)
+	s.Equal(hash, w.Hash())
 	s.NoError(w.Close())
+	testReader(s.T(), bytes.NewReader(buf.Bytes()), hash, plumbing.BlobObject, content, format.SHA256, "")
 }
 
 func (s *SuiteWriter) TestWriteOverflow() {

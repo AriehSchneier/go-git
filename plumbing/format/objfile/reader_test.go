@@ -11,6 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"github.com/go-git/go-git/v6/plumbing"
+	format "github.com/go-git/go-git/v6/plumbing/format/config"
 )
 
 type SuiteReader struct {
@@ -23,18 +24,52 @@ func TestSuiteReader(t *testing.T) {
 }
 
 func (s *SuiteReader) TestReadObjfile() {
-	for k, fixture := range objfileFixtures {
-		com := fmt.Sprintf("test %d: ", k)
-		hash := plumbing.NewHash(fixture.hash)
-		content, _ := base64.StdEncoding.DecodeString(fixture.content)
-		data, _ := base64.StdEncoding.DecodeString(fixture.data)
+	tests := []struct {
+		name         string
+		objectFormat format.ObjectFormat
+	}{
+		{name: "sha1", objectFormat: format.SHA1},
+		{name: "sha256", objectFormat: format.SHA256},
+	}
 
-		testReader(s.T(), bytes.NewReader(data), hash, fixture.t, content, com)
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			for k, fixture := range objfileFixtures {
+				com := fmt.Sprintf("%s test %d: ", tt.name, k)
+				content, _ := base64.StdEncoding.DecodeString(fixture.content)
+				data, _ := base64.StdEncoding.DecodeString(fixture.data)
+				hash := readerFixtureHash(fixture, content, tt.objectFormat)
+
+				testReader(s.T(), bytes.NewReader(data), hash, fixture.t, content, tt.objectFormat, com)
+			}
+		})
 	}
 }
 
-func testReader(t *testing.T, source io.Reader, hash plumbing.Hash, o plumbing.ObjectType, content []byte, _ string) {
-	r, err := NewReader(source)
+func readerFixtureHash(
+	fixture objfileFixture,
+	content []byte,
+	objectFormat format.ObjectFormat,
+) plumbing.Hash {
+	if objectFormat == format.SHA1 {
+		return plumbing.NewHash(fixture.hash)
+	}
+
+	hasher := plumbing.NewHasher(objectFormat, fixture.t, int64(len(content)))
+	_, _ = hasher.Write(content)
+	return hasher.Sum()
+}
+
+func testReader(
+	t *testing.T,
+	source io.Reader,
+	hash plumbing.Hash,
+	o plumbing.ObjectType,
+	content []byte,
+	objectFormat format.ObjectFormat,
+	_ string,
+) {
+	r, err := NewReader(source, objectFormat)
 	assert.NoError(t, err)
 
 	typ, size, err := r.Header()
@@ -52,20 +87,20 @@ func testReader(t *testing.T, source io.Reader, hash plumbing.Hash, o plumbing.O
 
 func (s *SuiteReader) TestReadEmptyObjfile() {
 	source := bytes.NewReader([]byte{})
-	_, err := NewReader(source)
+	_, err := NewReader(source, format.SHA1)
 	s.NotNil(err)
 }
 
 func (s *SuiteReader) TestReadGarbage() {
 	source := bytes.NewReader([]byte("!@#$RO!@NROSADfinq@o#irn@oirfn"))
-	_, err := NewReader(source)
+	_, err := NewReader(source, format.SHA1)
 	s.NotNil(err)
 }
 
 func (s *SuiteReader) TestReadCorruptZLib() {
 	data, _ := base64.StdEncoding.DecodeString("eAFLysaalPUjBgAAAJsAHw")
 	source := bytes.NewReader(data)
-	r, err := NewReader(source)
+	r, err := NewReader(source, format.SHA1)
 	s.NoError(err)
 
 	_, _, err = r.Header()
