@@ -136,6 +136,7 @@ func (s *UploadPackServeSuite) TestUploadPackStatefulMultiRoundSendsFinalACK() {
 	dot, err := fixtures.Basic().One().DotGit(fixtures.WithTargetDir(s.T().TempDir))
 	s.Require().NoError(err)
 	st := filesystem.NewStorage(dot, cache.NewObjectLRUDefault())
+	s.T().Cleanup(func() { _ = st.Close() })
 
 	head, err := storer.ResolveReference(st, plumbing.HEAD)
 	s.Require().NoError(err)

@@ -241,7 +241,11 @@ func TestSharedFileGracePeriodResetByAcquire(t *testing.T) {
 	}
 
 	sf := newSharedFile(opener)
-	sf.gracePeriod = 80 * time.Millisecond
+	// The grace period needs to be wide enough that the "still open"
+	// assertion below has comfortable margin over the time.Sleep
+	// granularity on Windows (~15ms with significant jitter under CI
+	// load). 200ms minus 50ms gives ~150ms of headroom.
+	sf.gracePeriod = 200 * time.Millisecond
 
 	_, err := sf.acquire()
 	require.NoError(t, err)
@@ -255,13 +259,14 @@ func TestSharedFileGracePeriodResetByAcquire(t *testing.T) {
 	assert.Equal(t, int32(1), opens.Load(), "should reuse FD, not reopen")
 	sf.release()
 
-	// 50ms into the new 80ms grace period: file still open.
+	// 50ms into the new 200ms grace period: file still open.
 	time.Sleep(50 * time.Millisecond)
 	assert.False(t, tf.closed.Load(), "new grace period hasn't expired")
 
-	// After the new grace period expires: file closed.
-	time.Sleep(50 * time.Millisecond)
-	assert.True(t, tf.closed.Load())
+	// After the new grace period expires: file closed. Poll instead of
+	// sleeping a fixed amount so we don't race timer scheduling jitter.
+	assert.Eventually(t, tf.closed.Load, time.Second, 10*time.Millisecond,
+		"file should close after grace period")
 	assert.Equal(t, int32(1), opens.Load())
 
 	_ = sf.Close()

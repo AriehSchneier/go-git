@@ -32,6 +32,10 @@ func (f *fixturesLoader) Load(ep *url.URL) (storage.Storer, error) {
 		return nil, err
 	}
 	st := filesystem.NewStorage(dot, nil)
+	// Ensure the storage is closed when the test ends. The default
+	// idx grace period otherwise keeps .idx file descriptors open
+	// past test return, which races t.TempDir's cleanup on Windows.
+	f.Cleanup(func() { _ = st.Close() })
 	return st, nil
 }
 
@@ -115,6 +119,7 @@ func (l *tagLoader) Load(_ *url.URL) (storage.Storer, error) {
 		return nil, err
 	}
 	st := filesystem.NewStorage(dot, nil)
+	l.Cleanup(func() { _ = st.Close() })
 
 	if l.objectFormat != "" {
 		cfg, err := st.Config()
