@@ -342,6 +342,164 @@ func TestSubmoduleParseScp(t *testing.T) {
 	})
 }
 
+func TestDefaultRemote(t *testing.T) {
+	t.Parallel()
+
+	type testCase struct {
+		name      string
+		remotes   map[string]string // remote name → URL
+		branches  map[string]string // branch name → branch.<name>.remote value
+		head      *plumbing.Reference
+		want      string // expected remote name
+		wantErrIn string // substring required in error message; "" means no error
+	}
+
+	hashRef := plumbing.NewHashReference(plumbing.HEAD, plumbing.NewHash("0000000000000000000000000000000000000001"))
+	mainSym := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.NewBranchReferenceName("main"))
+	tagSym := plumbing.NewSymbolicReference(plumbing.HEAD, plumbing.ReferenceName("refs/tags/v1"))
+
+	cases := []testCase{
+		{
+			name:     "branch-override-wins",
+			remotes:  map[string]string{"origin": "file:///o", "upstream": "file:///u"},
+			branches: map[string]string{"main": "upstream"},
+			head:     mainSym,
+			want:     "upstream",
+		},
+		{
+			name:      "branch-override-with-bogus-remote",
+			remotes:   map[string]string{"origin": "file:///o", "upstream": "file:///u"},
+			branches:  map[string]string{"main": "bogus"},
+			head:      mainSym,
+			wantErrIn: `remote "bogus" not found`,
+		},
+		{
+			name:    "single-remote-wins-over-origin-fallback",
+			remotes: map[string]string{"upstream": "file:///u"},
+			head:    hashRef,
+			want:    "upstream",
+		},
+		{
+			name:     "single-remote-with-empty-branch-remote",
+			remotes:  map[string]string{"upstream": "file:///u"},
+			branches: map[string]string{"main": ""},
+			head:     mainSym,
+			want:     "upstream",
+		},
+		{
+			name:    "origin-fallback-among-multiple",
+			remotes: map[string]string{"origin": "file:///o", "upstream": "file:///u"},
+			head:    hashRef,
+			want:    "origin",
+		},
+		{
+			name:      "origin-fallback-not-present",
+			remotes:   map[string]string{"upstream": "file:///u", "fork": "file:///f"},
+			head:      hashRef,
+			wantErrIn: `remote "origin" not found`,
+		},
+		{
+			name:      "no-remotes",
+			wantErrIn: `remote "origin" not found`,
+		},
+		{
+			name:     "unborn-branch",
+			remotes:  map[string]string{"origin": "file:///o", "upstream": "file:///u"},
+			branches: map[string]string{"main": "upstream"},
+			head:     mainSym,
+			want:     "upstream",
+		},
+		{
+			name:    "head-on-tag-falls-through",
+			remotes: map[string]string{"origin": "file:///o", "upstream": "file:///u"},
+			head:    tagSym,
+			want:    "origin",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			r := &Repository{Storer: memory.NewStorage()}
+			cfg, err := r.Config()
+			require.NoError(t, err)
+			for name, url := range tc.remotes {
+				cfg.Remotes[name] = &config.RemoteConfig{
+					Name: name,
+					URLs: []string{url},
+				}
+			}
+			for name, remote := range tc.branches {
+				cfg.Branches[name] = &config.Branch{Name: name, Remote: remote}
+			}
+			require.NoError(t, r.Storer.SetConfig(cfg))
+
+			if tc.head != nil {
+				require.NoError(t, r.Storer.SetReference(tc.head))
+			}
+
+			got, err := defaultRemote(r)
+			if tc.wantErrIn != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), tc.wantErrIn)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.want, got.Name)
+		})
+	}
+}
+
+func TestSubmoduleRelativeURLPicksOrigin(t *testing.T) {
+	t.Parallel()
+
+	// Two remotes plus a relative submodule URL. With the prior code,
+	// remotes[0] from map iteration could be either origin or upstream;
+	// the resolved submodule URL therefore differed across runs. Loop
+	// 20× to exercise different map orderings within a single test run
+	// — every iteration must resolve against origin.
+	for i := range 20 {
+		parent := &Repository{
+			Storer: memory.NewStorage(),
+			wt:     memfs.New(),
+		}
+		cfg, err := parent.Config()
+		require.NoError(t, err)
+		cfg.Remotes["origin"] = &config.RemoteConfig{
+			Name: "origin",
+			URLs: []string{"file:///parent/origin"},
+		}
+		cfg.Remotes["upstream"] = &config.RemoteConfig{
+			Name: "upstream",
+			URLs: []string{"file:///parent/upstream"},
+		}
+		require.NoError(t, parent.Storer.SetConfig(cfg))
+
+		sub := &Submodule{
+			initialized: true,
+			w:           &Worktree{Filesystem: memfs.New(), r: parent},
+			c: &config.Submodule{
+				Name: "child",
+				Path: "child",
+				URL:  "../child",
+			},
+		}
+
+		subRepo, err := sub.Repository()
+		require.NoError(t, err, "iteration %d", i)
+
+		remotes, err := subRepo.Remotes()
+		require.NoError(t, err)
+		require.Len(t, remotes, 1, "iteration %d", i)
+		require.Equal(t,
+			"file:///parent/child",
+			remotes[0].Config().URLs[0],
+			"iteration %d: expected URL resolved against origin", i,
+		)
+	}
+}
+
 func submoduleHashFromIndex(t *testing.T, r *Repository, name string) plumbing.Hash {
 	t.Helper()
 
