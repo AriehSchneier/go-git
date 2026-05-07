@@ -24,6 +24,7 @@ import (
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/cache"
 	"github.com/go-git/go-git/v6/plumbing/filemode"
+	formatcfg "github.com/go-git/go-git/v6/plumbing/format/config"
 	"github.com/go-git/go-git/v6/plumbing/format/index"
 	"github.com/go-git/go-git/v6/plumbing/object"
 	"github.com/go-git/go-git/v6/plumbing/storer"
@@ -107,6 +108,113 @@ func (s *WorktreeSuite) TestCommitInitial() {
 	s.Require().NoError(err)
 
 	assertStorageStatus(s, r, 1, 1, 1, expected)
+}
+
+func (s *WorktreeSuite) TestCommitInitialObjectFormats() {
+	tests := []struct {
+		name         string
+		objectFormat formatcfg.ObjectFormat
+		expectedHash string
+	}{
+		{
+			name:         "sha1",
+			objectFormat: formatcfg.SHA1,
+			expectedHash: "98c4ac7c29c913f7461eae06e024dc18e80d23a4",
+		},
+		{
+			name:         "sha256",
+			objectFormat: formatcfg.SHA256,
+			expectedHash: "9b86829db2f5159fe91032056e9aa60fc400c233bb2fc91ed7e966b996b2cd30",
+		},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			expected := plumbing.NewHash(tt.expectedHash)
+			fs := memfs.New()
+			storage := memory.NewStorage(memory.WithObjectFormat(tt.objectFormat))
+
+			r, err := Init(storage, WithWorkTree(fs), WithObjectFormat(tt.objectFormat))
+			s.Require().NoError(err)
+
+			w, err := r.Worktree()
+			s.Require().NoError(err)
+
+			err = util.WriteFile(fs, "foo", []byte("foo"), 0o644)
+			s.Require().NoError(err)
+
+			_, err = w.Add("foo")
+			s.Require().NoError(err)
+
+			hash, err := w.Commit("foo\n", &CommitOptions{Author: defaultSignature()})
+			s.Require().NoError(err)
+			s.Equal(expected, hash)
+			s.Len(hash.String(), tt.objectFormat.HexSize())
+			s.Require().NoError(storage.HasEncodedObject(hash))
+
+			commit, err := r.CommitObject(hash)
+			s.Require().NoError(err)
+			s.Equal(hash, commit.Hash)
+			s.Equal("foo\n", commit.Message)
+			s.Len(commit.TreeHash.String(), tt.objectFormat.HexSize())
+			s.Require().NoError(storage.HasEncodedObject(commit.TreeHash))
+
+			tree, err := commit.Tree()
+			s.Require().NoError(err)
+			file, err := tree.File("foo")
+			s.Require().NoError(err)
+			s.Len(file.Hash.String(), tt.objectFormat.HexSize())
+			s.Require().NoError(storage.HasEncodedObject(file.Hash))
+			content, err := file.Contents()
+			s.Require().NoError(err)
+			s.Equal("foo", content)
+
+			assertStorageStatus(s, r, 1, 1, 1, hash)
+		})
+	}
+}
+
+func (s *WorktreeSuite) TestSetReferencesInSHA256Repository() {
+	fs := memfs.New()
+	storage := memory.NewStorage(memory.WithObjectFormat(formatcfg.SHA256))
+
+	r, err := Init(storage, WithWorkTree(fs), WithObjectFormat(formatcfg.SHA256))
+	s.Require().NoError(err)
+
+	w, err := r.Worktree()
+	s.Require().NoError(err)
+
+	err = util.WriteFile(fs, "foo", []byte("foo"), 0o644)
+	s.Require().NoError(err)
+
+	_, err = w.Add("foo")
+	s.Require().NoError(err)
+
+	hash, err := w.Commit("foo\n", &CommitOptions{Author: defaultSignature()})
+	s.Require().NoError(err)
+	s.Len(hash.String(), formatcfg.SHA256.HexSize())
+
+	tests := []struct {
+		name string
+		ref  plumbing.ReferenceName
+	}{
+		{name: "branch", ref: plumbing.ReferenceName("refs/heads/feature")},
+		{name: "tag", ref: plumbing.ReferenceName("refs/tags/v1.0.0")},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			ref := plumbing.NewHashReference(tt.ref, hash)
+			err := r.Storer.SetReference(ref)
+			s.Require().NoError(err)
+
+			got, err := r.Reference(tt.ref, false)
+			s.Require().NoError(err)
+			s.Equal(ref.Name(), got.Name())
+			s.Equal(hash, got.Hash())
+			s.Len(got.Hash().String(), formatcfg.SHA256.HexSize())
+		})
+	}
 }
 
 func (s *WorktreeSuite) TestNothingToCommit() {
