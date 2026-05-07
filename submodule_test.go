@@ -10,6 +10,9 @@ import (
 
 	"github.com/go-git/go-git/v6/config"
 	"github.com/go-git/go-git/v6/plumbing"
+	"github.com/go-git/go-git/v6/plumbing/cache"
+	"github.com/go-git/go-git/v6/storage/filesystem"
+	"github.com/go-git/go-git/v6/storage/filesystem/dotgit"
 	"github.com/go-git/go-git/v6/storage/memory"
 )
 
@@ -655,4 +658,46 @@ func TestSubmoduleRepositoryURLResolution(t *testing.T) {
 			require.Equal(t, tc.wantRemote, remotes[0].Config().URLs[0])
 		})
 	}
+}
+
+// TestSubmoduleRepositoryRejectsEscapingName covers the storage-layer
+// defence against submodule name path traversal. Constructing a
+// Submodule with `Name = ".."` programmatically (bypassing the
+// .gitmodules parser) must not result in `Repository()` opening a
+// storer rooted in the parent's `.git/` directory, and must leave the
+// parent's HEAD reference untouched.
+func TestSubmoduleRepositoryRejectsEscapingName(t *testing.T) {
+	t.Parallel()
+
+	dotfs := memfs.New()
+	wtfs := memfs.New()
+	storer := filesystem.NewStorage(dotfs, cache.NewObjectLRUDefault())
+	r, err := Init(storer, WithWorkTree(wtfs))
+	require.NoError(t, err)
+
+	wt, err := r.Worktree()
+	require.NoError(t, err)
+
+	headBefore, err := storer.Reference(plumbing.HEAD)
+	require.NoError(t, err)
+
+	sm := &Submodule{
+		initialized: true,
+		c: &config.Submodule{
+			Name: "..",
+			Path: "deps/x",
+			URL:  "https://example.com/",
+		},
+		w: wt,
+	}
+
+	repo, err := sm.Repository()
+	require.Error(t, err)
+	require.ErrorIs(t, err, dotgit.ErrModuleNameEscape)
+	require.Nil(t, repo)
+
+	headAfter, err := storer.Reference(plumbing.HEAD)
+	require.NoError(t, err)
+	require.Equal(t, headBefore.Target(), headAfter.Target(),
+		"parent HEAD must not be overwritten")
 }
