@@ -556,3 +556,96 @@ func primaryFixtureSubmoduleName(f *fixtures.Fixture) string {
 
 	return "basic"
 }
+
+// newSubmoduleForRelativeURL constructs an in-memory Repository with
+// the given parent remote URL configured as origin, plus a Submodule
+// whose configured URL is the given submoduleURL. Pass parentRemoteURL
+// = "" to omit the origin remote entirely.
+func newSubmoduleForRelativeURL(t *testing.T, parentRemoteURL, submoduleName, submoduleURL string) *Submodule {
+	t.Helper()
+
+	repo := &Repository{
+		Storer: memory.NewStorage(),
+		wt:     memfs.New(),
+	}
+	if parentRemoteURL != "" {
+		_, err := repo.CreateRemote(&config.RemoteConfig{
+			Name: DefaultRemoteName,
+			URLs: []string{parentRemoteURL},
+		})
+		require.NoError(t, err)
+	}
+	worktree := &Worktree{
+		Filesystem: memfs.New(),
+		r:          repo,
+	}
+	return &Submodule{
+		initialized: true,
+		c: &config.Submodule{
+			Name: submoduleName,
+			URL:  submoduleURL,
+		},
+		w: worktree,
+	}
+}
+
+func TestSubmoduleRepositoryURLResolution(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name         string
+		parentURL    string
+		submoduleURL string
+		wantRemote   string
+		wantErr      string
+	}{
+		{
+			name:         "relative URL against HTTPS parent",
+			parentURL:    "https://example.invalid/group/proj.git",
+			submoduleURL: "../X.git",
+			wantRemote:   "https://example.invalid/group/X.git",
+		},
+		{
+			name:         "relative URL against SSH parent",
+			parentURL:    "ssh://git@example.invalid/group/proj.git",
+			submoduleURL: "../X.git",
+			wantRemote:   "ssh://git@example.invalid/group/X.git",
+		},
+		{
+			name:         "relative URL with deep traversal",
+			parentURL:    "https://example.invalid/group/proj.git",
+			submoduleURL: "../../org/X.git",
+			wantRemote:   "https://example.invalid/org/X.git",
+		},
+		{
+			name:         "absolute local URL preserved",
+			submoduleURL: "/abs/path/X.git",
+			wantRemote:   "file:///abs/path/X.git",
+		},
+		{
+			name:         "relative URL with no parent remote",
+			submoduleURL: "../X.git",
+			wantErr:      `resolving relative submodule URL: remote "origin" not found`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			sm := newSubmoduleForRelativeURL(t, tc.parentURL, "basic", tc.submoduleURL)
+
+			r, err := sm.Repository()
+			if tc.wantErr != "" {
+				require.ErrorContains(t, err, tc.wantErr)
+				return
+			}
+			require.NoError(t, err)
+
+			remotes, err := r.Remotes()
+			require.NoError(t, err)
+			require.Len(t, remotes, 1)
+			require.Equal(t, tc.wantRemote, remotes[0].Config().URLs[0])
+		})
+	}
+}
