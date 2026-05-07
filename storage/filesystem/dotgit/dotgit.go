@@ -78,6 +78,10 @@ var (
 	// ErrEmptyRefFile is returned when a reference file is attempted to be read,
 	// but the file is empty
 	ErrEmptyRefFile = errors.New("ref file is empty")
+	// ErrModuleNameEscape is returned when a submodule name would
+	// resolve outside the modules/ subtree, mirroring canonical Git's
+	// "ignoring suspicious submodule name" defence.
+	ErrModuleNameEscape = errors.New("submodule name escapes modules/ directory")
 )
 
 // Options holds configuration for the storage.
@@ -1273,8 +1277,19 @@ func (d *DotGit) PackRefs() (err error) {
 }
 
 // Module return a billy.Filesystem pointing to the module folder
+//
+// As a defence in depth against submodule name path traversal,
+// refuse names whose joined path leaves the modules/ subtree once
+// cleaned. The config-layer parser also validates submodule names,
+// but Module may be reached from any caller that constructs a
+// Submodule struct programmatically and so bypasses the parser.
 func (d *DotGit) Module(name string) (billy.Filesystem, error) {
-	return d.fs.Chroot(d.fs.Join(modulePath, name))
+	p := d.fs.Join(modulePath, name)
+	cleaned := path.Clean(filepath.ToSlash(p))
+	if cleaned != modulePath && !strings.HasPrefix(cleaned, modulePath+"/") {
+		return nil, ErrModuleNameEscape
+	}
+	return d.fs.Chroot(p)
 }
 
 // AddAlternate appends an alternate object directory path to the alternates file.
