@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path"
+	"path/filepath"
 
 	"github.com/go-git/go-billy/v6"
 
@@ -140,7 +141,7 @@ func (s *Submodule) Repository() (*Repository, error) {
 		return nil, err
 	}
 
-	if !path.IsAbs(moduleEndpoint.Path) && moduleEndpoint.Scheme == "file" {
+	if !path.IsAbs(moduleEndpoint.Path) && !filepath.IsAbs(moduleEndpoint.Path) && moduleEndpoint.Scheme == "file" {
 		base, err := defaultRemote(s.w.r)
 		if err != nil {
 			return nil, fmt.Errorf("resolving relative submodule URL: %w", err)
