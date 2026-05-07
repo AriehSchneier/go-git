@@ -500,6 +500,39 @@ func TestSubmoduleRelativeURLPicksOrigin(t *testing.T) {
 	}
 }
 
+func TestSubmoduleRelativeURLRemoteWithoutURLs(t *testing.T) {
+	t.Parallel()
+
+	// Defense in depth: a relative submodule URL must be joined onto
+	// the chosen parent remote. If that remote has no configured URL,
+	// earlier code panicked on `base.URLs[0]`. Mutating the in-memory
+	// config directly bypasses SetConfig's validation, mirroring the
+	// on-disk case where a `[remote "origin"]` section with no
+	// `url =` entry could be loaded.
+	parent := &Repository{
+		Storer: memory.NewStorage(),
+		wt:     memfs.New(),
+	}
+	cfg, err := parent.Config()
+	require.NoError(t, err)
+	cfg.Remotes["origin"] = &config.RemoteConfig{Name: "origin", URLs: nil}
+
+	sub := &Submodule{
+		initialized: true,
+		w:           &Worktree{Filesystem: memfs.New(), r: parent},
+		c: &config.Submodule{
+			Name: "child",
+			Path: "child",
+			URL:  "../child",
+		},
+	}
+
+	subRepo, err := sub.Repository()
+	require.Error(t, err)
+	require.Nil(t, subRepo)
+	require.ErrorContains(t, err, `remote "origin" has no configured URL`)
+}
+
 func submoduleHashFromIndex(t *testing.T, r *Repository, name string) plumbing.Hash {
 	t.Helper()
 
