@@ -323,7 +323,7 @@ func TestSubmoduleParseScp(t *testing.T) {
 			wt:     memfs.New(),
 		}
 		worktree := &Worktree{
-			filesystem: newWorktreeFilesystem(memfs.New()),
+			filesystem: newWorktreeFilesystem(memfs.New(), true, true),
 			r:          repo,
 		}
 		submodule := &Submodule{
@@ -478,7 +478,7 @@ func TestSubmoduleRelativeURLPicksOrigin(t *testing.T) {
 
 		sub := &Submodule{
 			initialized: true,
-			w:           &Worktree{filesystem: newWorktreeFilesystem(memfs.New()), r: parent},
+			w:           &Worktree{filesystem: newWorktreeFilesystem(memfs.New(), true, true), r: parent},
 			c: &config.Submodule{
 				Name: "child",
 				Path: "child",
@@ -576,7 +576,7 @@ func newSubmoduleForRelativeURL(t *testing.T, parentRemoteURL, submoduleName, su
 		require.NoError(t, err)
 	}
 	worktree := &Worktree{
-		Filesystem: memfs.New(),
+		filesystem: newWorktreeFilesystem(memfs.New(), true, true),
 		r:          repo,
 	}
 	return &Submodule{

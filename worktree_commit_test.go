@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"sort"
 	"testing"
 	"time"
@@ -847,7 +848,8 @@ func (s *WorktreeSuite) buildChildCommit(storage *memory.Storage, parent *object
 	parentTree, err := parent.Tree()
 	s.Require().NoError(err)
 
-	entries := append(parentTree.Entries, object.TreeEntry{
+	entries := slices.Clone(parentTree.Entries)
+	entries = append(entries, object.TreeEntry{
 		Name: filename,
 		Mode: filemode.Regular,
 		Hash: blobHash,

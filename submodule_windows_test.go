@@ -42,7 +42,7 @@ func TestSubmoduleWindowsAbsoluteURLNotJoined(t *testing.T) {
 
 			sub := &Submodule{
 				initialized: true,
-				w:           &Worktree{Filesystem: memfs.New(), r: parent},
+				w:           &Worktree{filesystem: newWorktreeFilesystem(memfs.New(), defaultProtectNTFS(), defaultProtectHFS()), r: parent},
 				c: &config.Submodule{
 					Name: "child",
 					Path: "child",

@@ -162,11 +162,15 @@ func (w *Worktree) CherryPick(commitOpts *CommitOptions, ortStrategyOption OrtMe
 				if err != nil {
 					return err
 				}
+				if to == nil {
+					continue
+				}
 				content, err := to.Contents()
 				if err != nil {
 					return err
 				}
-				dstFile, err := w.filesystem.Create(to.Name)
+				name := change.To.Name
+				dstFile, err := w.filesystem.Create(name)
 				if err != nil {
 					return err
 				}
@@ -174,7 +178,7 @@ func (w *Worktree) CherryPick(commitOpts *CommitOptions, ortStrategyOption OrtMe
 				if err != nil {
 					return err
 				}
-				if _, err := w.Add(to.Name); err != nil {
+				if _, err := w.Add(name); err != nil {
 					return err
 				}
 			}
