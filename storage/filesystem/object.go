@@ -397,7 +397,7 @@ func (s *ObjectStorage) encodedObjectSizeFromUnpacked(h plumbing.Hash) (size int
 		return 0, err
 	}
 
-	r, err := objfile.NewReader(f)
+	r, err := objfile.NewReader(f, s.options.ObjectFormat)
 	if err != nil {
 		return 0, err
 	}
@@ -605,7 +605,7 @@ func (s *ObjectStorage) getFromUnpacked(h plumbing.Hash) (obj plumbing.EncodedOb
 		return cacheObj, nil
 	}
 
-	r, err := objfile.NewReader(f)
+	r, err := objfile.NewReader(f, s.options.ObjectFormat)
 	if err != nil {
 		return nil, err
 	}
