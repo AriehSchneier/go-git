@@ -397,8 +397,9 @@ func TestCherryPickPathValidationMatchesGit(t *testing.T) {
 			path: "subdir/.git/config",
 		},
 		{
-			name: "git~1 8.3 short name",
-			path: "git~1/config",
+			name:    "git~1 8.3 short name",
+			path:    "git~1/config",
+			skipGit: !gitAtLeast(t, 2, 24),
 		},
 		{
 			name: "dot-dot traversal",
@@ -419,9 +420,10 @@ func TestCherryPickPathValidationMatchesGit(t *testing.T) {
 			config: map[string]string{"core.protectNTFS": "true"},
 		},
 		{
-			name:   "NTFS alternate data stream",
-			path:   ".git::$INDEX_ALLOCATION/config",
-			config: map[string]string{"core.protectNTFS": "true"},
+			name:    "NTFS alternate data stream",
+			path:    ".git::$INDEX_ALLOCATION/config",
+			config:  map[string]string{"core.protectNTFS": "true"},
+			skipGit: !gitAtLeast(t, 2, 24),
 		},
 		{
 			name:    "NTFS reserved device name CON",
@@ -566,6 +568,27 @@ func gitConfig(t *testing.T, dir, key, value string) {
 	cmd.Dir = dir
 	out, err := cmd.CombinedOutput()
 	require.NoError(t, err, "git config %s %s: %s", key, value, out)
+}
+
+// gitAtLeast reports whether the local `git` is at least the given version.
+// Used to skip upstream cherry-pick assertions for protections that older
+// Git releases (e.g. 2.11) do not implement, such as the git~1 8.3 short
+// name check (CVE-2014-9390 hardening) and the .git::$INDEX_ALLOCATION
+// NTFS Alternate Data Stream check (CVE-2019-1351).
+func gitAtLeast(t *testing.T, major, minor int) bool {
+	t.Helper()
+	out, err := exec.Command("git", "--version").Output()
+	if err != nil {
+		return false
+	}
+	var maj, mnr int
+	if _, err := fmt.Sscanf(string(out), "git version %d.%d", &maj, &mnr); err != nil {
+		return false
+	}
+	if maj != major {
+		return maj > major
+	}
+	return mnr >= minor
 }
 
 func gitCherryPick(t *testing.T, dir, hash string) error {
