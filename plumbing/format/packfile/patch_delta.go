@@ -338,10 +338,14 @@ func patchDeltaWriter(dst io.Writer, base io.ReaderAt, delta io.Reader,
 	}
 
 	// Avoid several interactions expanding the buffer, which can be quite
-	// inefficient on large deltas. The hint is clamped because targetSz
-	// is decoded from untrusted input and Grow takes a non-negative int.
+	// inefficient on large deltas. The preemptive growth is capped at
+	// maxPatchPreemptionSize so that the header-derived targetSz cannot
+	// drive a large allocation; this mirrors patchDelta.
 	if b, ok := dst.(*bytes.Buffer); ok {
-		b.Grow(int(min(targetSz, maxPatchPreemptionSize)))
+		// The hint is clamped because targetSz is decoded from untrusted
+		// input and Grow takes a non-negative int.
+		growSz := min(targetSz, maxPatchPreemptionSize)
+		b.Grow(int(growSz))
 	}
 
 	// If header still needs to be written, caller will provide
