@@ -221,6 +221,7 @@ func (s *ChangeAdaptorSuite) TestChangeFilesInsert() {
 	change := Change{}
 	change.To.Name = "json/long.json"
 	change.To.Tree = tree
+	change.To.TreeEntry.Name = "long.json"
 	change.To.TreeEntry.Mode = filemode.Regular
 	change.To.TreeEntry.Hash = plumbing.NewHash("49c6bb89b17060d7b4deacb7b338fcc6ea2352a9")
 
@@ -236,6 +237,7 @@ func (s *ChangeAdaptorSuite) TestChangeFilesInsertNotFound() {
 	change := Change{}
 	change.To.Name = "json/long.json"
 	change.To.Tree = tree
+	change.To.TreeEntry.Name = "long.json"
 	change.To.TreeEntry.Mode = filemode.Regular
 	// there is no object for this hash
 	change.To.TreeEntry.Hash = plumbing.NewHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -250,6 +252,7 @@ func (s *ChangeAdaptorSuite) TestChangeFilesDelete() {
 	change := Change{}
 	change.From.Name = "json/long.json"
 	change.From.Tree = tree
+	change.From.TreeEntry.Name = "long.json"
 	change.From.TreeEntry.Mode = filemode.Regular
 	change.From.TreeEntry.Hash = plumbing.NewHash("49c6bb89b17060d7b4deacb7b338fcc6ea2352a9")
 
@@ -265,6 +268,7 @@ func (s *ChangeAdaptorSuite) TestChangeFilesDeleteNotFound() {
 	change := Change{}
 	change.From.Name = "json/long.json"
 	change.From.Tree = tree
+	change.From.TreeEntry.Name = "long.json"
 	change.From.TreeEntry.Mode = filemode.Regular
 	// there is no object for this hash
 	change.From.TreeEntry.Hash = plumbing.NewHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa")
@@ -279,10 +283,12 @@ func (s *ChangeAdaptorSuite) TestChangeFilesModify() {
 	change := Change{}
 	change.To.Name = "json/long.json"
 	change.To.Tree = tree
+	change.To.TreeEntry.Name = "long.json"
 	change.To.TreeEntry.Mode = filemode.Regular
 	change.To.TreeEntry.Hash = plumbing.NewHash("49c6bb89b17060d7b4deacb7b338fcc6ea2352a9")
 	change.From.Name = "json/long.json"
 	change.From.Tree = tree
+	change.From.TreeEntry.Name = "long.json"
 	change.From.TreeEntry.Mode = filemode.Regular
 	change.From.TreeEntry.Hash = plumbing.NewHash("9a48f23120e880dfbe41f7c9b7b708e9ee62a492")
 

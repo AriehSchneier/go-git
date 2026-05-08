@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"runtime"
 	"sort"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/go-git/go-git/v6/internal/pathutil"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/filemode"
 	"github.com/go-git/go-git/v6/plumbing/object"
@@ -46,6 +48,8 @@ func TestValidPath(t *testing.T) {
 		{"a\\.git\\b", true},
 		{"a/.git", false},
 		{"a\\.git", false},
+		{"a\x01b", true},     // explicit byte-oriented control-char rejection
+		{"foo\x7fbar", true}, // DEL byte
 	}
 
 	for _, tc := range tests {
@@ -397,6 +401,18 @@ func TestCherryPickPathValidationMatchesGit(t *testing.T) {
 			path: "subdir/.git/config",
 		},
 		{
+			// Final-component .git as a regular blob mimics an attacker
+			// trying to overwrite a submodule's gitlink pointer via tree
+			// content. Upstream verify_path rejects this at every position
+			// and so does pathutil.ValidTreePath, called from
+			// Tree.FindEntry. The legitimate submodule shape is the
+			// directory entry itself (mode 160000 at "submodule"); a
+			// `.git` file inside is a checkout-time artifact, not a tree
+			// entry.
+			name: "final-component .git in subdirectory",
+			path: "submodule/.git",
+		},
+		{
 			name:    "git~1 8.3 short name",
 			path:    "git~1/config",
 			skipGit: !gitAtLeast(t, 2, 24),
@@ -470,7 +486,7 @@ func TestCherryPickPathValidationMatchesGit(t *testing.T) {
 			initCommit, err := r.CommitObject(initHash)
 			require.NoError(t, err)
 
-			badCommit := buildBadCommit(t, r.Storer, initCommit, initHash, tc.path)
+			badCommit := buildCommitWithEntry(t, r.Storer, initCommit, initHash, tc.path, filemode.Regular)
 
 			// Re-open so config overrides take effect in the worktreeFilesystem.
 			r, err = PlainOpen(dir)
@@ -495,7 +511,7 @@ func TestCherryPickPathValidationMatchesGit(t *testing.T) {
 	}
 }
 
-func buildBadCommit(t *testing.T, s storer.Storer, parent *object.Commit, parentHash plumbing.Hash, filePath string) *object.Commit {
+func buildCommitWithEntry(t *testing.T, s storer.Storer, parent *object.Commit, parentHash plumbing.Hash, filePath string, leafMode filemode.FileMode) *object.Commit {
 	t.Helper()
 
 	content := []byte("exploit")
@@ -513,7 +529,6 @@ func buildBadCommit(t *testing.T, s storer.Storer, parent *object.Commit, parent
 	// Build nested tree structure from leaf to root.
 	parts := strings.Split(filePath, "/")
 	leafHash := blobHash
-	leafMode := filemode.Regular
 
 	for i := len(parts) - 1; i >= 1; i-- {
 		tree := &object.Tree{
@@ -609,4 +624,382 @@ func gitCherryPick(t *testing.T, dir, hash string) error {
 		return fmt.Errorf("git cherry-pick %s: %s: %w", hash, out, err)
 	}
 	return nil
+}
+
+// TestResetAcceptsLegitPaths drives Reset(HardReset) onto a tree
+// containing a variety of legitimate path shapes and asserts each
+// one materialises on disk. pathutil.ValidTreePath rejects only
+// attacker-shaped names (".git" and equivalents); this test pins
+// that the non-attacker tail of the spec — high-codepoint Unicode,
+// deeply nested paths, dotfiles, double-dot fragments — passes
+// through the strict gate at the materialisation entry point.
+func TestResetAcceptsLegitPaths(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping reset path materialisation test in short mode")
+	}
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"high-codepoint Unicode dir", "Çircle/file.txt"},
+		{"plain nested path", "vendor/lib/main.go"},
+		{"plain dotfile", ".gitignore"},
+		{"plain gitmodules", ".gitmodules"},
+		{"name with double dots not traversal", "a..b/file"},
+		{"deep nesting", "a/b/c/d/e/f/file.txt"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+
+			r, err := PlainInit(dir, false)
+			require.NoError(t, err)
+
+			w, err := r.Worktree()
+			require.NoError(t, err)
+
+			require.NoError(t, util.WriteFile(w.Filesystem(), "README", []byte("init"), 0o644))
+			_, err = w.Add("README")
+			require.NoError(t, err)
+
+			initHash, err := w.Commit("initial commit\n", &CommitOptions{Author: defaultSignature()})
+			require.NoError(t, err)
+
+			initCommit, err := r.CommitObject(initHash)
+			require.NoError(t, err)
+
+			goodCommit := buildCommitWithEntry(t, r.Storer, initCommit, initHash, tc.path, filemode.Regular)
+
+			err = w.Reset(&ResetOptions{Commit: goodCommit.Hash, Mode: HardReset})
+			require.NoError(t, err, "Reset should accept legit path %q", tc.path)
+
+			_, err = os.Stat(filepath.Join(dir, filepath.FromSlash(tc.path)))
+			require.NoError(t, err, "path %q should exist after Reset", tc.path)
+		})
+	}
+}
+
+// TestAddRejectsDangerousPaths drives Worktree.Add with attacker-shaped
+// names that pass the worktreeFilesystem wrapper's tolerant validPath —
+// final-position ".git", HFS+/NTFS variants on platforms where the
+// corresponding flag is off, Windows reserved names — and asserts that
+// the strict pathutil.ValidTreePath gate at addOrUpdateFileToIndex
+// refuses to record them in the index. Mirrors the chokepoint pattern
+// used by Tree.FindEntry on the read side: the wrapper stays tolerant
+// for legitimate submodule-cleanup reads, while the index boundary
+// guarantees no Add can produce a tree containing such an entry.
+func TestAddRejectsDangerousPaths(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"final-component .git in subdirectory", "submodule/.git"},
+		{"NTFS trailing space on .git", ".git "},
+		{"NTFS trailing dot on .git", ".git."},
+		{"NTFS alternate data stream", ".git::$INDEX_ALLOCATION"},
+		{"HFS+ zero-width character in .git", ".g\u200cit"},
+		{"Windows reserved name CON", "CON"},
+		{"Windows reserved name NUL", "NUL"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fs := memfs.New()
+			r, err := Init(memory.NewStorage(), WithWorkTree(fs))
+			require.NoError(t, err)
+
+			w, err := r.Worktree()
+			require.NoError(t, err)
+			// Force the wrapper to its most tolerant configuration so
+			// every test case reaches the addOrUpdateFileToIndex gate
+			// regardless of host platform. Defaults vary (HFS on Mac,
+			// NTFS on Windows) and would short-circuit some shapes at
+			// the wrapper layer instead of the boundary under test.
+			w.filesystem = newWorktreeFilesystem(fs, false, false)
+
+			require.NoError(t, util.WriteFile(fs, tc.path, []byte("payload"), 0o644))
+
+			_, err = w.Add(tc.path)
+			require.Error(t, err, "Add should reject %q", tc.path)
+			assert.ErrorIs(t, err, pathutil.ErrInvalidPath)
+		})
+	}
+}
+
+// TestMoveRejectsDangerousDestinations exercises the same boundary as
+// TestAddRejectsDangerousPaths from the rename side: Move's destination
+// flows through addOrUpdateFileToIndex, so the strict gate must refuse
+// renaming a tracked file onto an attacker-shaped name even when the
+// wrapper's tolerant validPath would accept the rename itself.
+func TestMoveRejectsDangerousDestinations(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		to   string
+	}{
+		{"final-component .git in subdirectory", "submodule/.git"},
+		{"NTFS trailing space on .git", ".git "},
+		{"HFS+ zero-width character in .git", ".g\u200cit"},
+		{"Windows reserved name NUL", "NUL"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			fs := memfs.New()
+			r, err := Init(memory.NewStorage(), WithWorkTree(fs))
+			require.NoError(t, err)
+
+			w, err := r.Worktree()
+			require.NoError(t, err)
+			w.filesystem = newWorktreeFilesystem(fs, false, false)
+
+			require.NoError(t, util.WriteFile(fs, "src", []byte("payload"), 0o644))
+			_, err = w.Add("src")
+			require.NoError(t, err)
+
+			_, err = w.Move("src", tc.to)
+			require.Error(t, err, "Move should reject destination %q", tc.to)
+			assert.ErrorIs(t, err, pathutil.ErrInvalidPath)
+		})
+	}
+}
+
+func TestValidPathProtectNTFS(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), true, false)
+
+	tests := []struct {
+		path    string
+		wantErr bool
+	}{
+		{".git . . .", true},
+		{".git . . ", true},
+		{".git ", true},
+		{".git.", true},
+		{".git::$INDEX_ALLOCATION", true},
+		{"CON", true},
+		{"aux.txt", true},
+		{"sub/NUL", true},
+		{"sub/COM1.txt", true},
+		{"CONIN$", true},
+		{"readme.md", false},
+		{".gitignore", false},
+		{"CONNECT", false},
+	}
+
+	if runtime.GOOS == "windows" {
+		// filepath.VolumeName only parses volume names on Windows.
+		tests = append(tests, []struct {
+			path    string
+			wantErr bool
+		}{
+			{"\\\\a\\b", true},
+			{"C:\\a\\b", true},
+		}...)
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			t.Parallel()
+			err := fs.validPath(tc.path)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidPathProtectNTFSDisabled(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, false)
+
+	paths := []string{
+		".git . . .",
+		".git ",
+		".git.",
+		".git::$INDEX_ALLOCATION",
+	}
+
+	for _, p := range paths {
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+			err := fs.validPath(p)
+			assert.NoError(t, err, "NTFS checks should not apply when protectNTFS is false")
+		})
+	}
+}
+
+func TestWorktreeFilesystemRejectsNTFSPaths(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), true, false)
+
+	ntfsPaths := []string{
+		".git /config",
+		".git./config",
+		".git::$INDEX_ALLOCATION/config",
+	}
+
+	for _, p := range ntfsPaths {
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+
+			_, err := fs.Create(p)
+			assert.Error(t, err, "Create should reject NTFS path %q", p)
+		})
+	}
+}
+
+func TestWorktreeFilesystemRejectsNTFSDotGitmodulesSymlink(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		".gitmodules ",
+		".gitmodules.",
+		".gitmodules .",
+		".gitmodules::$DATA",
+		"gitmod~1",
+		"GITMOD~4",
+		"gi7eba~1",
+		"sub/.gitmodules ",
+	}
+
+	for _, link := range tests {
+		t.Run(link, func(t *testing.T) {
+			t.Parallel()
+			fs := newWorktreeFilesystem(memfs.New(), true, false)
+			err := fs.Symlink("safe-target", link)
+			require := assert.New(t)
+			require.Error(err, "Symlink should reject %q", link)
+			require.ErrorIs(err, ErrGitModulesSymlink, "expected ErrGitModulesSymlink for %q", link)
+		})
+	}
+}
+
+func TestWorktreeFilesystemNTFSDotGitmodulesSymlinkAllowedWhenProtectionOff(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, false)
+
+	// Bare .gitmodules is rejected via the case-insensitive match
+	// regardless of protectNTFS, but its NTFS variants are allowed
+	// when protectNTFS is off.
+	err := fs.Symlink("safe-target", ".gitmodules ")
+	assert.NoError(t, err, "NTFS variant should be allowed when protectNTFS is off")
+}
+
+func TestValidPathProtectHFS(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, true)
+
+	tests := []struct {
+		path    string
+		wantErr bool
+	}{
+		{".git", true},
+		{".g\u200cit", true},
+		{"\u200e.git", true},
+		{".Git", true},
+		{".GIT", true},
+		{".gitignore", false},
+		{"readme.md", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.path, func(t *testing.T) {
+			t.Parallel()
+			err := fs.validPath(tc.path)
+			if tc.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidPathProtectHFSDisabled(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, false)
+
+	hfsPaths := []string{
+		".g\u200cit",
+		"\u200e.git",
+		".gi\ufefft",
+	}
+
+	for _, p := range hfsPaths {
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+			err := fs.validPath(p)
+			assert.NoError(t, err, "HFS checks should not apply when protectHFS is false")
+		})
+	}
+}
+
+func TestWorktreeFilesystemRejectsHFSPaths(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, true)
+
+	hfsPaths := []string{
+		".g\u200cit/config",
+		"\u200e.git/config",
+	}
+
+	for _, p := range hfsPaths {
+		t.Run(p, func(t *testing.T) {
+			t.Parallel()
+			_, err := fs.Create(p)
+			assert.Error(t, err, "Create should reject HFS path %q", p)
+		})
+	}
+}
+
+func TestWorktreeFilesystemRejectsHFSDotGitmodulesSymlink(t *testing.T) {
+	t.Parallel()
+
+	tests := []string{
+		".g\u200citmodules",
+		".gitmod\u200dules",
+		"\u200e.gitmodules",
+		".gitmodules\ufeff",
+		"sub/.g\u200citmodules",
+	}
+
+	for _, link := range tests {
+		t.Run(link, func(t *testing.T) {
+			t.Parallel()
+			fs := newWorktreeFilesystem(memfs.New(), false, true)
+			err := fs.Symlink("safe-target", link)
+			assert.Error(t, err, "Symlink should reject %q", link)
+			assert.ErrorIs(t, err, ErrGitModulesSymlink, "expected ErrGitModulesSymlink for %q", link)
+		})
+	}
+}
+
+func TestWorktreeFilesystemHFSDotGitmodulesSymlinkAllowedWhenProtectionOff(t *testing.T) {
+	t.Parallel()
+
+	fs := newWorktreeFilesystem(memfs.New(), false, false)
+	err := fs.Symlink("safe-target", ".g\u200citmodules")
+	assert.NoError(t, err, "HFS variant should be allowed when protectHFS is off")
 }

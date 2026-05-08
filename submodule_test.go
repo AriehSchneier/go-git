@@ -222,12 +222,18 @@ func TestGitSubmodulesSymlink(t *testing.T) {
 
 		_, wt := cloneFixture(t, f)
 
-		file, err := wt.filesystem.Create("badfile")
+		// Plant the malicious symlink directly on the inner filesystem.
+		// The worktreeFilesystem wrapper's Symlink rejects .gitmodules
+		// link names by design (see validSymlinkName); the read-side
+		// detection in readGitmodulesFile is the layer being exercised
+		// here, so the setup goes through the unwrapped billy.Filesystem.
+		fs := wt.Filesystem()
+		file, err := fs.Create("badfile")
 		require.NoError(t, err)
 		require.NoError(t, file.Close())
 
-		require.NoError(t, wt.filesystem.Remove(gitmodulesFile))
-		require.NoError(t, wt.filesystem.Symlink("badfile", gitmodulesFile))
+		require.NoError(t, fs.Remove(gitmodulesFile))
+		require.NoError(t, fs.Symlink("badfile", gitmodulesFile))
 
 		_, err = wt.Submodules()
 		require.ErrorIs(t, err, ErrGitModulesSymlink)
@@ -583,6 +589,7 @@ func newSubmoduleForRelativeURL(t *testing.T, parentRemoteURL, submoduleName, su
 		initialized: true,
 		c: &config.Submodule{
 			Name: submoduleName,
+			Path: submoduleName,
 			URL:  submoduleURL,
 		},
 		w: worktree,

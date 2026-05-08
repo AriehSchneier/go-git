@@ -593,7 +593,11 @@ func (w *Worktree) addOrUpdateFileToIndex(idx *index.Index, filename string, h p
 }
 
 func (w *Worktree) doAddFileToIndex(idx *index.Index, filename string, h plumbing.Hash) error {
-	return w.doUpdateFileToIndex(idx.Add(filename), filename, h)
+	e, err := idx.Add(filename)
+	if err != nil {
+		return err
+	}
+	return w.doUpdateFileToIndex(e, filename, h)
 }
 
 func (w *Worktree) doUpdateFileToIndex(e *index.Entry, filename string, h plumbing.Hash) error {

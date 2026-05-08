@@ -11,6 +11,7 @@ import (
 	"github.com/go-git/go-billy/v6"
 
 	"github.com/go-git/go-git/v6/config"
+	"github.com/go-git/go-git/v6/internal/pathutil"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/format/index"
 	"github.com/go-git/go-git/v6/plumbing/transport"
@@ -120,6 +121,16 @@ func (s *Submodule) Repository() (*Repository, error) {
 	var exists bool
 	if err == nil {
 		exists = true
+	}
+
+	// s.c.Path is sourced from the worktree's .gitmodules and is
+	// therefore tree-controlled. Apply the strict tree-path validator
+	// before chroot — the wrapper's tolerant validPath would let a
+	// final-position .git component through (e.g. "submodule/.git"),
+	// which a malicious .gitmodules could use to chroot the submodule
+	// worktree into the repository's actual .git directory.
+	if err := pathutil.ValidTreePath(s.c.Path); err != nil {
+		return nil, err
 	}
 
 	var worktree billy.Filesystem
