@@ -122,6 +122,16 @@ func (w *PackWriter) Close() error {
 		return err
 	}
 
+	// Sync the file to ensure buffered data is written to stable storage.
+	// While Close() should make data visible, explicitly syncing before close
+	// ensures any OS-buffered writes are flushed, which may help prevent
+	// checksum mismatches when pack files are immediately read after creation.
+	if syncer, ok := w.fw.(interface{ Sync() error }); ok {
+		if err := syncer.Sync(); err != nil {
+			return err
+		}
+	}
+
 	if err := w.fw.Close(); err != nil {
 		return err
 	}
