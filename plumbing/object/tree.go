@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/go-git/go-git/v6/internal/pathutil"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/filemode"
 	"github.com/go-git/go-git/v6/plumbing/storer"
@@ -118,7 +119,16 @@ func (t *Tree) Tree(path string) (*Tree, error) {
 }
 
 // TreeEntryFile returns the *File for a given *TreeEntry.
+//
+// The entry's name is validated against pathutil.ValidTreePath for
+// the same reason FindEntry validates: TreeEntryFile is a boundary
+// where attacker-controlled tree data leaves the trusted store as a
+// *File whose Name a caller can hand to filesystem ops.
 func (t *Tree) TreeEntryFile(e *TreeEntry) (*File, error) {
+	if err := pathutil.ValidTreePath(e.Name); err != nil {
+		return nil, err
+	}
+
 	blob, err := GetBlob(t.s, e.Hash)
 	if err != nil {
 		return nil, err
@@ -128,7 +138,16 @@ func (t *Tree) TreeEntryFile(e *TreeEntry) (*File, error) {
 }
 
 // FindEntry search a TreeEntry in this tree or any subtree.
+//
+// The lookup path is validated against pathutil.ValidTreePath to
+// prevent attacker-controlled tree contents from leaking past this
+// boundary as `.git`-shaped or path-traversal-shaped names. Callers
+// that legitimately need to look up unsafe paths should walk the
+// tree manually.
 func (t *Tree) FindEntry(path string) (*TreeEntry, error) {
+	if err := pathutil.ValidTreePath(path); err != nil {
+		return nil, err
+	}
 	if t.t == nil {
 		t.t = make(map[string]*Tree)
 	}
@@ -483,6 +502,14 @@ func NewTreeWalker(t *Tree, recursive bool, seen map[plumbing.Hash]bool) *TreeWa
 // and subtrees are included. After the last object has been returned further
 // calls to Next() will return io.EOF.
 //
+// Each entry's name is validated against pathutil.ValidTreePath as it
+// surfaces, so callers that funnel the returned name into filesystem
+// or archive output can trust it is free of `.git`-shaped components,
+// HFS+/NTFS variants, Windows reserved names, and traversal sequences.
+// A malformed entry stops the walk with the validator's error;
+// inspection-only callers that need to enumerate raw, unvalidated
+// names can read Tree.Entries directly.
+//
 // In the current implementation any objects which cannot be found in the
 // underlying repository will be skipped automatically. It is possible that this
 // may change in future versions.
@@ -517,6 +544,10 @@ func (w *TreeWalker) Next() (name string, entry TreeEntry, err error) {
 
 		if w.seen[entry.Hash] {
 			continue
+		}
+
+		if err := pathutil.ValidTreePath(entry.Name); err != nil {
+			return name, entry, err
 		}
 
 		if entry.Mode == filemode.Dir {

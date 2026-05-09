@@ -806,6 +806,9 @@ func (w *Worktree) checkoutChange(ch merkletrie.Change, t *object.Tree, idx *ind
 	switch a {
 	case merkletrie.Modify, merkletrie.Insert:
 		name = ch.To.String()
+		// FindEntry validates name via pathutil.ValidTreePath, so a
+		// dangerous tree-derived path is refused at the lookup
+		// boundary before we materialise anything.
 		e, err = t.FindEntry(name)
 		if err != nil {
 			return err
@@ -813,6 +816,14 @@ func (w *Worktree) checkoutChange(ch merkletrie.Change, t *object.Tree, idx *ind
 
 		isSubmodule = e.Mode == filemode.Submodule
 	case merkletrie.Delete:
+		// checkoutChange.Delete is only reached from resetWorktree's
+		// filesystem-vs-index merkletrie diff (resetWorktreeToTree's
+		// tree-derived deletes call rmFileAndDirsIfEmpty directly).
+		// The path source is therefore the local worktree filesystem,
+		// where the tolerant worktreeFilesystem wrapper is the right
+		// fit: we want to be able to clean up legitimately-tracked
+		// shapes like "submodule/.git" rather than abort the whole
+		// reset on a single weird untracked file.
 		return rmFileAndDirsIfEmpty(w.filesystem, ch.From.String())
 	}
 
@@ -994,10 +1005,10 @@ func (w *Worktree) copyObjectToWorktree(object *object.File, file billy.File) (e
 }
 
 func (w *Worktree) checkoutFileSymlink(f *object.File) (err error) {
-	// https://github.com/git/git/commit/10ecfa76491e4923988337b2e2243b05376b40de
-	if strings.EqualFold(f.Name, gitmodulesFile) {
-		return ErrGitModulesSymlink
-	}
+	// .gitmodules symlink rejection (and its NTFS / HFS variants) is
+	// enforced by the worktreeFilesystem wrapper's Symlink method via
+	// validSymlinkName. See https://github.com/git/git/commit/10ecfa7
+	// for the upstream rationale.
 
 	from, err := f.Reader()
 	if err != nil {

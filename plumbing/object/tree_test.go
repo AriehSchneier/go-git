@@ -13,6 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 
+	"github.com/go-git/go-git/v6/internal/pathutil"
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/cache"
 	"github.com/go-git/go-git/v6/plumbing/filemode"
@@ -2115,4 +2116,102 @@ func TestTreeEncodePreservesDuplicateEntries(t *testing.T) {
 	want.WriteByte(0)
 	want.Write(hashBBytes)
 	assert.Equal(t, want.Bytes(), got)
+}
+
+// TestTreeEntryFileRejectsDangerousNames pins the validation gate added
+// to TreeEntryFile: any caller materialising a *File from a *TreeEntry
+// must fail closed when the entry's name is a shape that
+// pathutil.ValidTreePath rejects, regardless of whether the underlying
+// blob fetch would succeed. The blob is staged before each case so a
+// missing-blob error cannot mask a missing validator.
+func TestTreeEntryFileRejectsDangerousNames(t *testing.T) {
+	t.Parallel()
+
+	store := memory.NewStorage()
+	blob := &plumbing.MemoryObject{}
+	blob.SetType(plumbing.BlobObject)
+	bw, err := blob.Writer()
+	require.NoError(t, err)
+	_, err = bw.Write([]byte("payload"))
+	require.NoError(t, err)
+	require.NoError(t, bw.Close())
+	blobHash, err := store.SetEncodedObject(blob)
+	require.NoError(t, err)
+
+	cases := []struct {
+		name      string
+		entryName string
+	}{
+		{"empty name", ""},
+		{".git", ".git"},
+		{"git~1 short name", "git~1"},
+		{"NTFS trailing space", ".git "},
+		{"NTFS trailing dot", ".git."},
+		{"NTFS alternate data stream", ".git::$INDEX_ALLOCATION"},
+		{"NTFS trailing space on git~1", "git~1 "},
+		{"NTFS alternate data stream on git~1", "git~1::$DATA"},
+		{"HFS+ zero-width character", ".g\u200cit"},
+		{"dot-dot traversal", ".."},
+		{"single dot", "."},
+		{"control character", "foo\x01bar"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tree := &Tree{s: store}
+			f, err := tree.TreeEntryFile(&TreeEntry{
+				Name: tc.entryName,
+				Mode: filemode.Regular,
+				Hash: blobHash,
+			})
+			assert.Nil(t, f, "TreeEntryFile should not return a *File for %q", tc.entryName)
+			assert.ErrorIs(t, err, pathutil.ErrInvalidPath)
+		})
+	}
+}
+
+// TestTreeWalkerNextRejectsDangerousNames pins the validation gate
+// added to TreeWalker.Next: enumeration must surface an attacker-shaped
+// entry name as an error rather than handing the joined path to the
+// caller. Inspection-only callers that legitimately need to enumerate
+// raw entries can still read Tree.Entries directly.
+func TestTreeWalkerNextRejectsDangerousNames(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		entryName string
+	}{
+		{".git", ".git"},
+		{"git~1 short name", "git~1"},
+		{"NTFS trailing space", ".git "},
+		{"NTFS alternate data stream", ".git::$INDEX_ALLOCATION"},
+		{"NTFS trailing space on git~1", "git~1 "},
+		{"HFS+ zero-width character", ".g\u200cit"},
+		{"dot-dot traversal", ".."},
+		{"control character", "foo\x01bar"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tree := &Tree{
+				Entries: []TreeEntry{
+					{
+						Name: tc.entryName,
+						Mode: filemode.Regular,
+						Hash: plumbing.NewHash("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"),
+					},
+				},
+			}
+			walker := NewTreeWalker(tree, true, nil)
+			defer walker.Close()
+
+			_, _, err := walker.Next()
+			assert.ErrorIs(t, err, pathutil.ErrInvalidPath)
+		})
+	}
 }
