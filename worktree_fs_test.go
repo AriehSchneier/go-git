@@ -686,13 +686,19 @@ func TestResetAcceptsLegitPaths(t *testing.T) {
 
 // TestAddRejectsDangerousPaths drives Worktree.Add with attacker-shaped
 // names that pass the worktreeFilesystem wrapper's tolerant validPath —
-// final-position ".git", HFS+/NTFS variants on platforms where the
-// corresponding flag is off, Windows reserved names — and asserts that
-// the strict pathutil.ValidTreePath gate at addOrUpdateFileToIndex
-// refuses to record them in the index. Mirrors the chokepoint pattern
-// used by Tree.FindEntry on the read side: the wrapper stays tolerant
-// for legitimate submodule-cleanup reads, while the index boundary
+// final-position ".git" and HFS+/NTFS .git-disguise variants on
+// platforms where the corresponding flag is off — and asserts that the
+// strict pathutil.ValidTreePath gate at addOrUpdateFileToIndex refuses
+// to record them in the index. Mirrors the chokepoint pattern used by
+// Tree.FindEntry on the read side: the wrapper stays tolerant for
+// legitimate submodule-cleanup reads, while the index boundary
 // guarantees no Add can produce a tree containing such an entry.
+//
+// Windows reserved device names are not exercised here: they are
+// legitimate filenames on non-Windows and upstream Git accepts them, so
+// the strict tree-side gate also accepts them. The wrapper rejects them
+// at materialisation time when core.protectNTFS is on; that path is
+// covered by TestValidPathProtectNTFS.
 func TestAddRejectsDangerousPaths(t *testing.T) {
 	t.Parallel()
 
@@ -704,9 +710,9 @@ func TestAddRejectsDangerousPaths(t *testing.T) {
 		{"NTFS trailing space on .git", ".git "},
 		{"NTFS trailing dot on .git", ".git."},
 		{"NTFS alternate data stream", ".git::$INDEX_ALLOCATION"},
+		{"NTFS trailing space on git~1", "git~1 "},
+		{"NTFS alternate data stream on git~1", "git~1::$DATA"},
 		{"HFS+ zero-width character in .git", ".g\u200cit"},
-		{"Windows reserved name CON", "CON"},
-		{"Windows reserved name NUL", "NUL"},
 	}
 
 	for _, tc := range cases {
@@ -749,8 +755,8 @@ func TestMoveRejectsDangerousDestinations(t *testing.T) {
 	}{
 		{"final-component .git in subdirectory", "submodule/.git"},
 		{"NTFS trailing space on .git", ".git "},
+		{"NTFS trailing space on git~1", "git~1 "},
 		{"HFS+ zero-width character in .git", ".g\u200cit"},
-		{"Windows reserved name NUL", "NUL"},
 	}
 
 	for _, tc := range cases {
