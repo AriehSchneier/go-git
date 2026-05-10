@@ -39,6 +39,31 @@ func TestSuiteDotGit(t *testing.T) {
 
 func (s *SuiteDotGit) EmptyFS() (fs billy.Filesystem) { return memfs.New() }
 
+func (s *SuiteDotGit) TestModuleRejectsEscapingNames() {
+	d := New(s.EmptyFS())
+	// Only true path-traversal cases — names like "/etc" or
+	// "modules/../escape" land inside modules/ once Join cleans
+	// them, so the containment check correctly accepts those.
+	bad := []string{
+		"..",
+		"../x",
+		"foo/../..",
+		"a/b/c/../../../..",
+	}
+	for _, n := range bad {
+		_, err := d.Module(n)
+		s.ErrorIs(err, ErrModuleNameEscape, "name %q", n)
+	}
+}
+
+func (s *SuiteDotGit) TestModuleAcceptsBenignNames() {
+	d := New(s.EmptyFS())
+	for _, n := range []string{"foo", "lib/foo", "x.y"} {
+		_, err := d.Module(n)
+		s.Require().NoError(err, "name %q", n)
+	}
+}
+
 func (s *SuiteDotGit) TestInitialize() {
 	fs := s.EmptyFS()
 
