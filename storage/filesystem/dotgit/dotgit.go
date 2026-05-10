@@ -16,6 +16,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-git/go-billy/v6"
@@ -115,8 +116,9 @@ type DotGit struct {
 	fs      billy.Filesystem
 
 	// incoming object directory information
-	incomingChecked bool
+	// incomingOnce ensures directory scan happens only once
 	incomingDirName string
+	incomingOnce    sync.Once
 
 	objectList []plumbing.Hash // sorted
 	objectMap  map[plumbing.Hash]struct{}
@@ -728,7 +730,7 @@ func (d *DotGit) incomingObjectPath(h plumbing.Hash) string {
 // hasIncomingObjects searches for an incoming directory and keeps its name
 // so it doesn't have to be found each time an object is accessed.
 func (d *DotGit) hasIncomingObjects() bool {
-	if !d.incomingChecked {
+	d.incomingOnce.Do(func() {
 		directoryContents, err := d.fs.ReadDir(objectsPath)
 		if err == nil {
 			for _, file := range directoryContents {
@@ -739,9 +741,7 @@ func (d *DotGit) hasIncomingObjects() bool {
 				}
 			}
 		}
-
-		d.incomingChecked = true
-	}
+	})
 
 	return d.incomingDirName != ""
 }

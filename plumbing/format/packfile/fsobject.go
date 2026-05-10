@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"sync"
 
 	billy "github.com/go-git/go-billy/v6"
 
@@ -12,7 +13,7 @@ import (
 	"github.com/go-git/go-git/v6/plumbing/cache"
 	"github.com/go-git/go-git/v6/plumbing/format/idxfile"
 	"github.com/go-git/go-git/v6/utils/ioutil"
-	"github.com/go-git/go-git/v6/utils/sync"
+	utilsync "github.com/go-git/go-git/v6/utils/sync"
 )
 
 // FSObject is an object from the packfile on the filesystem.
@@ -26,6 +27,7 @@ type FSObject struct {
 	pack     billy.File
 	packPath string
 	cache    cache.Object
+	mu       sync.Mutex // Protects pack access when used as fallback
 }
 
 // NewFSObject creates a new filesystem object.
@@ -65,41 +67,57 @@ func (o *FSObject) Reader() (io.ReadCloser, error) {
 		return reader, nil
 	}
 
-	var file io.Closer
-	_, err := o.pack.Seek(o.offset, io.SeekStart)
-	// fsobject aims to reuse an existing file descriptor to the packfile.
-	// In some cases that descriptor would already be closed, in such cases,
-	// open the packfile again and close it when the reader is closed.
-	if err != nil && errors.Is(err, os.ErrClosed) {
-		o.pack, err = o.fs.Open(o.packPath)
+	// Prefer opening a new file descriptor to enable concurrent reads without
+	// mutex contention. If the file doesn't exist (e.g., in test scenarios where
+	// the pack file is from a different filesystem), fall back to using o.pack.
+	file, err := o.fs.Open(o.packPath)
+	if err == nil {
+		// Successfully opened new file descriptor - use it (no mutex needed)
+		_, err = file.Seek(o.offset, io.SeekStart)
 		if err != nil {
+			_ = file.Close()
 			return nil, err
 		}
-		file = o.pack
-		_, err = o.pack.Seek(o.offset, io.SeekStart)
+
+		br := utilsync.GetBufioReader(file)
+		zr, err := utilsync.GetZlibReader(br)
+		if err != nil {
+			utilsync.PutBufioReader(br)
+			_ = file.Close()
+			return nil, err
+		}
+
+		return &zlibReadCloser{r: zr, f: file, rbuf: br}, nil
+	}
+
+	// Fallback: use the existing pack file descriptor with mutex protection.
+	// This handles cases where the packfile was deleted or is on a different
+	// filesystem (e.g., test scenarios).
+	o.mu.Lock()
+	defer o.mu.Unlock()
+
+	_, err = o.pack.Seek(o.offset, io.SeekStart)
+	if err != nil && errors.Is(err, os.ErrClosed) {
+		// Both paths failed - pack is closed and can't open new file
+		return nil, err
 	}
 	if err != nil {
-		if file != nil {
-			_ = file.Close()
-		}
 		return nil, err
 	}
 
-	br := sync.GetBufioReader(o.pack)
-
-	zr, err := sync.GetZlibReader(br)
+	br := utilsync.GetBufioReader(o.pack)
+	zr, err := utilsync.GetZlibReader(br)
 	if err != nil {
-		sync.PutBufioReader(br)
-		if file != nil {
-			_ = file.Close()
-		}
+		utilsync.PutBufioReader(br)
 		return nil, err
 	}
-	return &zlibReadCloser{r: zr, f: file, rbuf: br}, nil
+
+	// Don't close o.pack - it's shared and will be closed elsewhere
+	return &zlibReadCloser{r: zr, f: nil, rbuf: br}, nil
 }
 
 type zlibReadCloser struct {
-	r      *sync.ZLibReader
+	r      *utilsync.ZLibReader
 	f      io.Closer
 	rbuf   *bufio.Reader
 	closed bool
@@ -120,9 +138,9 @@ func (r *zlibReadCloser) Close() (err error) {
 		defer ioutil.CheckClose(r.f, &err)
 	}
 
-	defer sync.PutBufioReader(r.rbuf)
+	defer utilsync.PutBufioReader(r.rbuf)
 
-	defer sync.PutZlibReader(r.r)
+	defer utilsync.PutZlibReader(r.r)
 	return r.r.Close()
 }
 

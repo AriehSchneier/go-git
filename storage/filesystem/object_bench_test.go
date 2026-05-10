@@ -1,6 +1,7 @@
 package filesystem
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"testing"
@@ -85,4 +86,159 @@ func BenchmarkAlternatesObjectLookup(b *testing.B) {
 			}
 		}
 	})
+}
+
+// BenchmarkObjectReader measures the performance of reading an object from a packfile.
+// This exercises FSObject.Reader() which now opens a new file descriptor each time.
+func BenchmarkObjectReader(b *testing.B) {
+	fixture := fixtures.ByTag("packfile").One()
+	fs, err := fixture.DotGit()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	storage := NewStorage(fs, cache.NewObjectLRUDefault())
+	defer storage.Close()
+
+	// Use a known hash from the fixtures
+	hash := plumbing.NewHash("6ecf0ef2c2dffb796033e5a02219af86ec6584e5")
+
+	// Warm up - make sure object is in packfile
+	obj, err := storage.EncodedObject(plumbing.AnyObject, hash)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		r, err := obj.Reader()
+		if err != nil {
+			b.Fatal(err)
+		}
+		_, err = io.Copy(io.Discard, r)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = r.Close()
+	}
+}
+
+// BenchmarkObjectReaderParallel measures concurrent Reader() calls
+// on the same object. With the new implementation, each call gets
+// its own file descriptor, enabling true concurrent reads.
+func BenchmarkObjectReaderParallel(b *testing.B) {
+	fixture := fixtures.ByTag("packfile").One()
+	fs, err := fixture.DotGit()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	storage := NewStorage(fs, cache.NewObjectLRUDefault())
+	defer storage.Close()
+
+	hash := plumbing.NewHash("6ecf0ef2c2dffb796033e5a02219af86ec6584e5")
+	obj, err := storage.EncodedObject(plumbing.AnyObject, hash)
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			r, err := obj.Reader()
+			if err != nil {
+				b.Fatal(err)
+			}
+			_, err = io.Copy(io.Discard, r)
+			if err != nil {
+				b.Fatal(err)
+			}
+			_ = r.Close()
+		}
+	})
+}
+
+// BenchmarkFileOpenClose measures the cost of opening and closing a file.
+// This gives us a baseline to understand the overhead added by FSObject.Reader().
+func BenchmarkFileOpenClose(b *testing.B) {
+	fixture := fixtures.ByTag("packfile").One()
+	fs, err := fixture.DotGit()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Find a packfile
+	files, err := fs.ReadDir("objects/pack")
+	if err != nil {
+		b.Fatal(err)
+	}
+	var packPath string
+	for _, f := range files {
+		if !f.IsDir() && len(f.Name()) > 5 && f.Name()[len(f.Name())-5:] == ".pack" {
+			packPath = fs.Join("objects/pack", f.Name())
+			break
+		}
+	}
+	if packPath == "" {
+		b.Fatal("no packfile found")
+	}
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		f, err := fs.Open(packPath)
+		if err != nil {
+			b.Fatal(err)
+		}
+		_ = f.Close()
+	}
+}
+
+// BenchmarkFileReuseSeek measures the cost of seeking on an existing file descriptor.
+// This represents the theoretical best case if we could safely reuse descriptors.
+func BenchmarkFileReuseSeek(b *testing.B) {
+	fixture := fixtures.ByTag("packfile").One()
+	fs, err := fixture.DotGit()
+	if err != nil {
+		b.Fatal(err)
+	}
+
+	// Find a packfile
+	files, err := fs.ReadDir("objects/pack")
+	if err != nil {
+		b.Fatal(err)
+	}
+	var packPath string
+	for _, f := range files {
+		if !f.IsDir() && len(f.Name()) > 5 && f.Name()[len(f.Name())-5:] == ".pack" {
+			packPath = fs.Join("objects/pack", f.Name())
+			break
+		}
+	}
+	if packPath == "" {
+		b.Fatal("no packfile found")
+	}
+
+	f, err := fs.Open(packPath)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer f.Close()
+
+	offset := int64(12)
+
+	b.ResetTimer()
+	b.ReportAllocs()
+
+	for i := 0; i < b.N; i++ {
+		_, err := f.Seek(offset, io.SeekStart)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
 }
