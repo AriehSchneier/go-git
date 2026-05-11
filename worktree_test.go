@@ -1782,6 +1782,177 @@ func (s *WorktreeSuite) TestResetHardWithGitIgnore() {
 	s.True(status.IsClean())
 }
 
+// TestResetHardTrackedFileInIgnoredDir covers the case the IgnoreMatcher
+// optimization actually targets: a tracked file living inside a gitignored
+// directory. The walker must descend into the directory because trackedDirs
+// records it as containing tracked descendants, so the Delete-on-disk shows
+// up as a change and HardReset restores the file.
+func (s *WorktreeSuite) TestResetHardTrackedFileInIgnoredDir() {
+	fs := memfs.New()
+	w := &Worktree{
+		r:          s.Repository,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
+	}
+
+	err := w.Checkout(&CheckoutOptions{})
+	s.NoError(err)
+
+	err = fs.MkdirAll("vendor", os.ModePerm)
+	s.NoError(err)
+	tf, err := fs.Create("vendor/keep.txt")
+	s.NoError(err)
+	_, err = tf.Write([]byte("tracked content"))
+	s.NoError(err)
+	err = tf.Close()
+	s.NoError(err)
+	_, err = w.Add("vendor/keep.txt")
+	s.NoError(err)
+
+	gi, err := fs.Create(".gitignore")
+	s.NoError(err)
+	_, err = gi.Write([]byte("vendor/\n"))
+	s.NoError(err)
+	err = gi.Close()
+	s.NoError(err)
+	_, err = w.Add(".gitignore")
+	s.NoError(err)
+
+	_, err = w.Commit("testcommit", &CommitOptions{Author: &object.Signature{Name: "name", Email: "email"}})
+	s.NoError(err)
+
+	err = fs.Remove("vendor/keep.txt")
+	s.NoError(err)
+
+	status, err := w.Status()
+	s.NoError(err)
+	s.False(status.IsClean())
+
+	err = w.Reset(&ResetOptions{Mode: HardReset})
+	s.NoError(err)
+
+	status, err = w.Status()
+	s.NoError(err)
+	s.True(status.IsClean())
+
+	got, err := util.ReadFile(fs, "vendor/keep.txt")
+	s.NoError(err)
+	s.Equal("tracked content", string(got))
+}
+
+// TestResetHardModifiedTrackedFileWithGitIgnore complements
+// TestResetHardWithGitIgnore by exercising modification (not deletion) of a
+// tracked file whose name is gitignored. The pre-#2048 post-walk filter
+// would have dropped this Modify action; with the noder-based matcher,
+// tracked entries are preserved regardless of ignore rules.
+func (s *WorktreeSuite) TestResetHardModifiedTrackedFileWithGitIgnore() {
+	fs := memfs.New()
+	w := &Worktree{
+		r:          s.Repository,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
+	}
+
+	err := w.Checkout(&CheckoutOptions{})
+	s.NoError(err)
+
+	tf, err := fs.Create("tracked.txt")
+	s.NoError(err)
+	_, err = tf.Write([]byte("v1"))
+	s.NoError(err)
+	err = tf.Close()
+	s.NoError(err)
+	_, err = w.Add("tracked.txt")
+	s.NoError(err)
+
+	gi, err := fs.Create(".gitignore")
+	s.NoError(err)
+	_, err = gi.Write([]byte("tracked.txt\n"))
+	s.NoError(err)
+	err = gi.Close()
+	s.NoError(err)
+	_, err = w.Add(".gitignore")
+	s.NoError(err)
+
+	_, err = w.Commit("testcommit", &CommitOptions{Author: &object.Signature{Name: "name", Email: "email"}})
+	s.NoError(err)
+
+	err = util.WriteFile(fs, "tracked.txt", []byte("v2 dirty"), 0o644)
+	s.NoError(err)
+
+	status, err := w.Status()
+	s.NoError(err)
+	s.False(status.IsClean())
+
+	err = w.Reset(&ResetOptions{Mode: HardReset})
+	s.NoError(err)
+
+	status, err = w.Status()
+	s.NoError(err)
+	s.True(status.IsClean())
+
+	got, err := util.ReadFile(fs, "tracked.txt")
+	s.NoError(err)
+	s.Equal("v1", string(got))
+}
+
+// TestMergeResetRemovesTrackedFileInIgnoredDir is the regression test for
+// the case Copilot flagged on this PR. resetIndex runs immediately before
+// resetWorktree and removes paths from the index, so a tracked path inside
+// a gitignored directory that is being removed by the reset would no
+// longer be in idxMap. If the noder's IgnoreMatcher were engaged here, it
+// would prune the path during the walk and the Delete action needed to
+// remove the file from disk would never be emitted. resetWorktree must
+// keep excludeIgnoredChanges=false so MergeReset still cleans the file up.
+func (s *WorktreeSuite) TestMergeResetRemovesTrackedFileInIgnoredDir() {
+	fs := memfs.New()
+	w := &Worktree{
+		r:          s.Repository,
+		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
+	}
+
+	err := w.Checkout(&CheckoutOptions{})
+	s.NoError(err)
+
+	gi, err := fs.Create(".gitignore")
+	s.NoError(err)
+	_, err = gi.Write([]byte("vendor/\n"))
+	s.NoError(err)
+	err = gi.Close()
+	s.NoError(err)
+	_, err = w.Add(".gitignore")
+	s.NoError(err)
+
+	err = fs.MkdirAll("vendor", os.ModePerm)
+	s.NoError(err)
+	tf, err := fs.Create("vendor/keep.txt")
+	s.NoError(err)
+	_, err = tf.Write([]byte("tracked content"))
+	s.NoError(err)
+	err = tf.Close()
+	s.NoError(err)
+	_, err = w.Add("vendor/keep.txt")
+	s.NoError(err)
+	withFile, err := w.Commit("with file", &CommitOptions{Author: &object.Signature{Name: "name", Email: "email"}})
+	s.NoError(err)
+
+	_, err = w.Remove("vendor/keep.txt")
+	s.NoError(err)
+	withoutFile, err := w.Commit("without file", &CommitOptions{Author: &object.Signature{Name: "name", Email: "email"}})
+	s.NoError(err)
+
+	// HardReset back to "with file" so the tracked, gitignored path is on disk.
+	err = w.Reset(&ResetOptions{Mode: HardReset, Commit: withFile})
+	s.NoError(err)
+	_, err = fs.Stat("vendor/keep.txt")
+	s.NoError(err)
+
+	// MergeReset to "without file" must remove the path even though the
+	// directory matches an ignore rule.
+	err = w.Reset(&ResetOptions{Mode: MergeReset, Commit: withoutFile})
+	s.NoError(err)
+	_, err = fs.Stat("vendor/keep.txt")
+	s.True(os.IsNotExist(err), "vendor/keep.txt must be removed after MergeReset, got err=%v", err)
+}
+
 func (s *WorktreeSuite) TestResetSparsely() {
 	fs := memfs.New()
 	w := &Worktree{
