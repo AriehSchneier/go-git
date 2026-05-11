@@ -340,6 +340,144 @@ func (s *SuiteReader) TestReadPacketError() {
 	s.Equal("ERR EOF\n", string(p))
 }
 
+func (s *SuiteReader) TestReadInvalidBuffer() {
+	for _, test := range []struct {
+		name     string
+		input    string
+		buf      []byte
+		expected error
+	}{
+		{
+			name:     "short length buffer",
+			input:    "0005E",
+			buf:      make([]byte, pktline.LenSize-1),
+			expected: pktline.ErrInvalidPktLen,
+		},
+		{
+			name:     "short payload buffer",
+			input:    "0005E",
+			buf:      make([]byte, pktline.LenSize),
+			expected: io.ErrUnexpectedEOF,
+		},
+	} {
+		test := test
+		s.Run(test.name, func() {
+			var (
+				length int
+				err    error
+			)
+			if s.NotPanics(func() {
+				length, err = pktline.Read(strings.NewReader(test.input), test.buf)
+			}) {
+				s.Equal(pktline.Err, length)
+				s.ErrorIs(err, test.expected)
+			}
+		})
+	}
+}
+
+func (s *SuiteReader) TestNilReaders() {
+	for _, test := range []struct {
+		name string
+		read func() (int, []byte, error)
+	}{
+		{
+			name: "read",
+			read: func() (int, []byte, error) {
+				length, err := pktline.Read(nil, make([]byte, pktline.LenSize))
+				return length, nil, err
+			},
+		},
+		{
+			name: "read line",
+			read: func() (int, []byte, error) {
+				return pktline.ReadLine(nil)
+			},
+		},
+		{
+			name: "peek line",
+			read: func() (int, []byte, error) {
+				return pktline.PeekLine(nil)
+			},
+		},
+	} {
+		test := test
+		s.Run(test.name, func() {
+			var (
+				length  int
+				payload []byte
+				err     error
+			)
+			if s.NotPanics(func() {
+				length, payload, err = test.read()
+			}) {
+				s.Equal(pktline.Err, length)
+				s.Nil(payload)
+				s.ErrorIs(err, pktline.ErrNilReader)
+			}
+		})
+	}
+}
+
+func (s *SuiteReader) TestReadShortPacketStaleBuffer() {
+	for _, test := range []struct {
+		name   string
+		input  string
+		length int
+	}{
+		{name: "one byte payload", input: "0005E", length: 5},
+		{name: "two byte payload", input: "0006ER", length: 6},
+		{name: "three byte payload", input: "0007ERR", length: 7},
+	} {
+		test := test
+		s.Run(test.name, func() {
+			p := make([]byte, pktline.MaxSize)
+			p[5], p[6], p[7] = 'R', 'R', ' '
+
+			var (
+				length int
+				err    error
+			)
+			if s.NotPanics(func() {
+				length, err = pktline.Read(strings.NewReader(test.input), p)
+			}) {
+				s.Equal(test.length, length)
+				s.NoError(err)
+			}
+		})
+	}
+}
+
+func (s *SuiteReader) TestScanShortPacketAfterStalePrefix() {
+	for _, test := range []struct {
+		name        string
+		shortPacket string
+		payload     string
+	}{
+		{name: "one byte payload", shortPacket: "0005E", payload: "E"},
+		{name: "two byte payload", shortPacket: "0006ER", payload: "ER"},
+		{name: "three byte payload", shortPacket: "0007ERR", payload: "ERR"},
+	} {
+		test := test
+		s.Run(test.name, func() {
+			var buf bytes.Buffer
+			buf.WriteString("0008XRR ")
+			buf.WriteString(test.shortPacket)
+
+			sc := pktline.NewScanner(&buf)
+			var payloads []string
+			if s.NotPanics(func() {
+				for sc.Scan() {
+					payloads = append(payloads, sc.Text())
+				}
+			}) {
+				s.NoError(sc.Err())
+				s.Equal([]string{"XRR ", test.payload}, payloads)
+			}
+		})
+	}
+}
+
 // returns nSection sections, each of them with nLines pkt-lines (not
 // counting the flush-pkt:
 //
