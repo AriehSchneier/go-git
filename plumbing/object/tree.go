@@ -396,17 +396,20 @@ func canonicalTreeMode(mode filemode.FileMode) filemode.FileMode {
 }
 
 // Encode transforms a Tree into a plumbing.EncodedObject.
-// The tree entries must be sorted by name.
 //
-// Each entry name is validated against pathutil.ValidTreePath so that
-// the encoder cannot produce a tree object containing components such
-// as ".git", "..", control characters, or HFS+/NTFS variants of ".git".
-// Encode also rejects duplicate names — including the file/dir
-// collision `foo` and `foo/` — so the output is well-formed regardless
-// of how the in-memory Tree was assembled. Callers that need to emit
-// such bytes for testing or recovery should write them directly via
+// The tree is run through Tree.Validate before any bytes are written,
+// so the encoder cannot produce a tree object containing components
+// such as ".git", "..", control characters, HFS+/NTFS variants of
+// ".git", null entry hashes, oversize names, mis-sorted or duplicate
+// entries, or symlinks disguised as ".gitmodules"/".gitattributes"/
+// ".gitignore"/".mailmap". Callers that need to emit such bytes for
+// testing or recovery should write them directly via
 // plumbing.EncodedObject rather than through this method.
 func (t *Tree) Encode(o plumbing.EncodedObject) (err error) {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+
 	o.SetType(plumbing.TreeObject)
 	w, err := o.Writer()
 	if err != nil {
@@ -415,20 +418,7 @@ func (t *Tree) Encode(o plumbing.EncodedObject) (err error) {
 
 	defer ioutil.CheckClose(w, &err)
 
-	if !sort.IsSorted(TreeEntrySorter(t.Entries)) {
-		return ErrEntriesNotSorted
-	}
-
-	seen := make(map[string]struct{}, len(t.Entries))
 	for _, entry := range t.Entries {
-		if err := pathutil.ValidTreePath(entry.Name); err != nil {
-			return err
-		}
-		if _, dup := seen[entry.Name]; dup {
-			return fmt.Errorf("%w: %q", ErrDuplicateEntry, entry.Name)
-		}
-		seen[entry.Name] = struct{}{}
-
 		if _, err = fmt.Fprintf(w, "%o %s", entry.Mode, entry.Name); err != nil {
 			return err
 		}
