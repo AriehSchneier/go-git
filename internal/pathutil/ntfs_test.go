@@ -185,3 +185,30 @@ func TestIsNTFSDotGitmodules(t *testing.T) {
 		})
 	}
 }
+
+func TestIsNTFSDotMetadataFamily(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name      string
+		fn        func(string) bool
+		canonical string
+		short     string
+	}{
+		{"IsNTFSDotGitattributes", IsNTFSDotGitattributes, ".gitattributes", "gi7d29~1"},
+		{"IsNTFSDotGitignore", IsNTFSDotGitignore, ".gitignore", "gi250a~1"},
+		{"IsNTFSDotMailmap", IsNTFSDotMailmap, ".mailmap", "maba30~1"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			assert.True(t, tc.fn(tc.canonical), "%s(%q)", tc.name, tc.canonical)
+			assert.True(t, tc.fn(tc.canonical+" "), "%s(%q)", tc.name, tc.canonical+" ")
+			assert.True(t, tc.fn(tc.canonical+":foo"), "%s(%q)", tc.name, tc.canonical+":foo")
+			assert.True(t, tc.fn(tc.short), "%s(%q)", tc.name, tc.short)
+			assert.False(t, tc.fn(".gitmodules"), "%s(%q)", tc.name, ".gitmodules")
+			assert.False(t, tc.fn(""), "%s(empty)", tc.name)
+		})
+	}
+}

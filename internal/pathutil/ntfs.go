@@ -170,13 +170,33 @@ func IsNTFSDot(name, dotgit, shortnamePrefix string) bool {
 	return onlySpacesAndPeriods(8)
 }
 
-// IsNTFSDotGitmodules reports whether part is an NTFS-equivalent of
-// ".gitmodules" — the file name (or any of its variants that NTFS
-// would resolve to it) that attackers can use to plant submodule
-// configuration disguised as a symlink. The 6-character canonical
-// short-name prefix "gi7eba" mirrors upstream Git's is_ntfs_dotgitmodules.
+// IsNTFSDotGitmodules reports whether part is an NTFS equivalent of
+// ".gitmodules" — the file name or any variant that NTFS would
+// resolve to it. The 6-character canonical short-name prefix "gi7eba"
+// mirrors upstream Git's is_ntfs_dotgitmodules.
 func IsNTFSDotGitmodules(part string) bool {
 	return IsNTFSDot(part, "gitmodules", "gi7eba")
+}
+
+// IsNTFSDotGitattributes reports whether part is an NTFS equivalent
+// of ".gitattributes". The short-name prefix "gi7d29" mirrors upstream
+// Git's is_ntfs_dotgitattributes.
+func IsNTFSDotGitattributes(part string) bool {
+	return IsNTFSDot(part, "gitattributes", "gi7d29")
+}
+
+// IsNTFSDotGitignore reports whether part is an NTFS equivalent of
+// ".gitignore". The short-name prefix "gi250a" mirrors upstream Git's
+// is_ntfs_dotgitignore.
+func IsNTFSDotGitignore(part string) bool {
+	return IsNTFSDot(part, "gitignore", "gi250a")
+}
+
+// IsNTFSDotMailmap reports whether part is an NTFS equivalent of
+// ".mailmap". The short-name prefix "maba30" mirrors upstream Git's
+// is_ntfs_dotmailmap.
+func IsNTFSDotMailmap(part string) bool {
+	return IsNTFSDot(part, "mailmap", "maba30")
 }
 
 func asciiToLower(c byte) byte {
