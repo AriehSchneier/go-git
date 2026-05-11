@@ -360,7 +360,6 @@ func (s *SuiteReader) TestReadInvalidBuffer() {
 			expected: io.ErrUnexpectedEOF,
 		},
 	} {
-		test := test
 		s.Run(test.name, func() {
 			var (
 				length int
@@ -401,7 +400,6 @@ func (s *SuiteReader) TestNilReaders() {
 			},
 		},
 	} {
-		test := test
 		s.Run(test.name, func() {
 			var (
 				length  int
@@ -429,7 +427,6 @@ func (s *SuiteReader) TestReadShortPacketStaleBuffer() {
 		{name: "two byte payload", input: "0006ER", length: 6},
 		{name: "three byte payload", input: "0007ERR", length: 7},
 	} {
-		test := test
 		s.Run(test.name, func() {
 			p := make([]byte, pktline.MaxSize)
 			p[5], p[6], p[7] = 'R', 'R', ' '
@@ -458,7 +455,6 @@ func (s *SuiteReader) TestScanShortPacketAfterStalePrefix() {
 		{name: "two byte payload", shortPacket: "0006ER", payload: "ER"},
 		{name: "three byte payload", shortPacket: "0007ERR", payload: "ERR"},
 	} {
-		test := test
 		s.Run(test.name, func() {
 			var buf bytes.Buffer
 			buf.WriteString("0008XRR ")

@@ -89,7 +89,6 @@ func (s *SuiteWriter) TestNilWriter() {
 			},
 		},
 	} {
-		test := test
 		s.Run(test.name, func() {
 			var err error
 			if s.NotPanics(func() {
@@ -111,7 +110,6 @@ func (s *SuiteWriter) TestWriteErrorInvalidInput() {
 		{name: "nil writer", writer: nil, err: nil, expected: pktline.ErrNilWriter},
 		{name: "nil error", writer: io.Discard, err: nil, expected: pktline.ErrNilError},
 	} {
-		test := test
 		s.Run(test.name, func() {
 			var (
 				n   int
