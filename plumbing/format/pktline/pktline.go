@@ -126,7 +126,9 @@ func WriteResponseEnd(w io.Writer) (err error) {
 // length.
 //
 // If p is less than 4 bytes, Read returns ErrInvalidPktLen. If p cannot hold
-// the entire packet, Read returns io.ErrUnexpectedEOF.
+// the entire packet, Read discards the packet and returns io.ErrUnexpectedEOF;
+// the stream is left positioned after the packet so subsequent pkt-line reads
+// stay in sync.
 // The error can be of type *ErrorLine if the packet is an error packet.
 //
 // Use packet length to determine the type of packet i.e. 0 is a flush packet,
@@ -162,6 +164,8 @@ func Read(r io.Reader, p []byte) (l int, err error) {
 		return length, nil
 	}
 	if length > len(p) {
+		// Drain the payload so subsequent pkt-line reads stay in sync.
+		_, _ = io.CopyN(io.Discard, r, int64(length-LenSize))
 		return Err, io.ErrUnexpectedEOF
 	}
 

@@ -375,6 +375,25 @@ func (s *SuiteReader) TestReadInvalidBuffer() {
 	}
 }
 
+func (s *SuiteReader) TestReadShortBufferKeepsStreamInSync() {
+	var buf bytes.Buffer
+	_, err := pktline.WriteString(&buf, "hello world")
+	s.NoError(err)
+	_, err = pktline.WriteString(&buf, "next")
+	s.NoError(err)
+
+	small := make([]byte, pktline.LenSize+2)
+	length, err := pktline.Read(&buf, small)
+	s.Equal(pktline.Err, length)
+	s.ErrorIs(err, io.ErrUnexpectedEOF)
+
+	full := make([]byte, pktline.MaxSize)
+	length, err = pktline.Read(&buf, full)
+	s.NoError(err)
+	s.Equal(pktline.LenSize+len("next"), length)
+	s.Equal("next", string(full[pktline.LenSize:length]))
+}
+
 func (s *SuiteReader) TestNilReaders() {
 	for _, test := range []struct {
 		name string
