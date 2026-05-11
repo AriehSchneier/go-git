@@ -31,6 +31,7 @@ var (
 	ErrEntryNotFound     = errors.New("entry not found")
 	ErrEntriesNotSorted  = errors.New("entries in tree are not sorted")
 	ErrMalformedTree     = errors.New("malformed tree")
+	ErrDuplicateEntry    = errors.New("duplicate entry in tree")
 )
 
 // Tree is basically like a directory - it references a bunch of other trees
@@ -386,6 +387,15 @@ func canonicalTreeMode(mode filemode.FileMode) filemode.FileMode {
 
 // Encode transforms a Tree into a plumbing.EncodedObject.
 // The tree entries must be sorted by name.
+//
+// Each entry name is validated against pathutil.ValidTreePath so that
+// the encoder cannot produce a tree object containing components such
+// as ".git", "..", control characters, or HFS+/NTFS variants of ".git".
+// Encode also rejects duplicate names — including the file/dir
+// collision `foo` and `foo/` — so the output is well-formed regardless
+// of how the in-memory Tree was assembled. Callers that need to emit
+// such bytes for testing or recovery should write them directly via
+// plumbing.EncodedObject rather than through this method.
 func (t *Tree) Encode(o plumbing.EncodedObject) (err error) {
 	o.SetType(plumbing.TreeObject)
 	w, err := o.Writer()
@@ -399,10 +409,16 @@ func (t *Tree) Encode(o plumbing.EncodedObject) (err error) {
 		return ErrEntriesNotSorted
 	}
 
+	seen := make(map[string]struct{}, len(t.Entries))
 	for _, entry := range t.Entries {
-		if strings.IndexByte(entry.Name, 0) != -1 {
-			return fmt.Errorf("malformed filename %q", entry.Name)
+		if err := pathutil.ValidTreePath(entry.Name); err != nil {
+			return err
 		}
+		if _, dup := seen[entry.Name]; dup {
+			return fmt.Errorf("%w: %q", ErrDuplicateEntry, entry.Name)
+		}
+		seen[entry.Name] = struct{}{}
+
 		if _, err = fmt.Fprintf(w, "%o %s", entry.Mode, entry.Name); err != nil {
 			return err
 		}

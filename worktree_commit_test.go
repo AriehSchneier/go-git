@@ -854,11 +854,25 @@ func (s *WorktreeSuite) buildChildCommit(storage *memory.Storage, parent *object
 		Mode: filemode.Regular,
 		Hash: blobHash,
 	})
-	tree := &object.Tree{Entries: entries}
-	sort.Sort(object.TreeEntrySorter(tree.Entries))
+	sort.Sort(object.TreeEntrySorter(entries))
+
+	// Tree.Encode validates entry names through pathutil.ValidTreePath
+	// and would refuse a path component like ".git/config" — the precise
+	// shape this test needs to plant. Assemble the tree object bytes
+	// directly so the malicious tree reaches the cherry-pick boundary.
+	var buf bytes.Buffer
+	for _, e := range entries {
+		fmt.Fprintf(&buf, "%o %s", e.Mode, e.Name)
+		buf.WriteByte(0)
+		buf.Write(e.Hash.Bytes())
+	}
 	treeObj := storage.NewEncodedObject()
-	err = tree.Encode(treeObj)
+	treeObj.SetType(plumbing.TreeObject)
+	tw, err := treeObj.Writer()
 	s.Require().NoError(err)
+	_, err = tw.Write(buf.Bytes())
+	s.Require().NoError(err)
+	s.Require().NoError(tw.Close())
 	treeHash, err := storage.SetEncodedObject(treeObj)
 	s.Require().NoError(err)
 

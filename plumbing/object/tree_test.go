@@ -2082,40 +2082,88 @@ func TestTreeFindEntryFindsDirectoryAfterLexicallyEarlierFile(t *testing.T) {
 	assert.Equal(t, 0, bytes.Compare(hashB, got.Hash.Bytes()))
 }
 
-func TestTreeEncodePreservesDuplicateEntries(t *testing.T) {
+// TestTreeEncodeRejectsDuplicateEntries pins the duplicate-name check
+// in Tree.Encode. Two entries sharing a name — whether two files, two
+// directories, or a file/dir collision where the dir's sort name `foo/`
+// puts it elsewhere in the sorted order — must be rejected with
+// ErrDuplicateEntry rather than written to the object.
+func TestTreeEncodeRejectsDuplicateEntries(t *testing.T) {
 	t.Parallel()
 
-	hashABytes := bytes.Repeat([]byte{0xAA}, 20)
-	hashBBytes := bytes.Repeat([]byte{0xBB}, 20)
-	hashA, ok := plumbing.FromBytes(hashABytes)
+	hashA, ok := plumbing.FromBytes(bytes.Repeat([]byte{0xAA}, 20))
 	require.True(t, ok)
-	hashB, ok := plumbing.FromBytes(hashBBytes)
+	hashB, ok := plumbing.FromBytes(bytes.Repeat([]byte{0xBB}, 20))
 	require.True(t, ok)
 
-	tree := &Tree{
-		Entries: []TreeEntry{
-			{Name: "foo", Mode: filemode.Regular, Hash: hashA},
-			{Name: "foo", Mode: filemode.Regular, Hash: hashB},
+	cases := []struct {
+		name    string
+		entries []TreeEntry
+	}{
+		{
+			name: "two files with the same name",
+			entries: []TreeEntry{
+				{Name: "foo", Mode: filemode.Regular, Hash: hashA},
+				{Name: "foo", Mode: filemode.Regular, Hash: hashB},
+			},
+		},
+		{
+			name: "file and directory with the same name",
+			entries: []TreeEntry{
+				{Name: "foo", Mode: filemode.Regular, Hash: hashA},
+				{Name: "foo", Mode: filemode.Dir, Hash: hashB},
+			},
 		},
 	}
 
-	obj := &plumbing.MemoryObject{}
-	require.NoError(t, tree.Encode(obj))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	r, err := obj.Reader()
-	require.NoError(t, err)
-	got, err := io.ReadAll(r)
-	require.NoError(t, err)
-	require.NoError(t, r.Close())
+			tree := &Tree{Entries: tc.entries}
+			sort.Sort(TreeEntrySorter(tree.Entries))
+			obj := &plumbing.MemoryObject{}
+			err := tree.Encode(obj)
+			require.ErrorIs(t, err, ErrDuplicateEntry)
+		})
+	}
+}
 
-	var want bytes.Buffer
-	want.WriteString("100644 foo")
-	want.WriteByte(0)
-	want.Write(hashABytes)
-	want.WriteString("100644 foo")
-	want.WriteByte(0)
-	want.Write(hashBBytes)
-	assert.Equal(t, want.Bytes(), got)
+// TestTreeEncodeRejectsDangerousNames pins the entry-name validation in
+// Tree.Encode: a tree assembled in memory with components that
+// pathutil.ValidTreePath refuses must fail at the encoder boundary so
+// the library cannot produce such tree objects through its API.
+func TestTreeEncodeRejectsDangerousNames(t *testing.T) {
+	t.Parallel()
+
+	hash, ok := plumbing.FromBytes(bytes.Repeat([]byte{0xAA}, 20))
+	require.True(t, ok)
+
+	cases := []struct {
+		name  string
+		entry string
+	}{
+		{"final-component .git", ".git"},
+		{"parent traversal", ".."},
+		{"current directory", "."},
+		{"NTFS trailing space on .git", ".git "},
+		{"NTFS short-name alias git~1", "git~1"},
+		{"HFS+ zero-width character in .git", ".g\u200cit"},
+		{"embedded NUL in name", "foo\x00bar"},
+		{"control character", "foo\x01bar"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tree := &Tree{
+				Entries: []TreeEntry{{Name: tc.entry, Mode: filemode.Regular, Hash: hash}},
+			}
+			obj := &plumbing.MemoryObject{}
+			err := tree.Encode(obj)
+			require.ErrorIs(t, err, pathutil.ErrInvalidPath)
+		})
+	}
 }
 
 // TestTreeEntryFileRejectsDangerousNames pins the validation gate added
