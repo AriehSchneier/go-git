@@ -107,3 +107,30 @@ func TestIsHFSDotGitmodules(t *testing.T) {
 		})
 	}
 }
+
+func TestIsHFSDotMetadataFamily(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name string
+		fn   func(string) bool
+		hit  string
+	}{
+		{"IsHFSDotGitattributes", IsHFSDotGitattributes, ".gitattributes"},
+		{"IsHFSDotGitignore", IsHFSDotGitignore, ".gitignore"},
+		{"IsHFSDotMailmap", IsHFSDotMailmap, ".mailmap"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			// Canonical name and one zero-width variant hit.
+			assert.True(t, tc.fn(tc.hit), "expected %s(%q) to be true", tc.name, tc.hit)
+			disguised := tc.hit[:2] + "\u200c" + tc.hit[2:]
+			assert.True(t, tc.fn(disguised), "expected %s(%q) to be true", tc.name, disguised)
+			// Unrelated names miss.
+			assert.False(t, tc.fn(".gitmodules"), "expected %s(%q) to be false", tc.name, ".gitmodules")
+			assert.False(t, tc.fn(""), "expected %s(empty) to be false", tc.name)
+		})
+	}
+}

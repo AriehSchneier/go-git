@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"sort"
+	"strings"
 	"testing"
 
 	fixtures "github.com/go-git/go-git-fixtures/v6"
@@ -313,9 +314,9 @@ func (o *SortReadCloser) Read(p []byte) (int, error) {
 func (s *TreeSuite) TestTreeEntriesSorted() {
 	tree := &Tree{
 		Entries: []TreeEntry{
-			{"foo", filemode.Regular, plumbing.NewHash("b029517f6300c2da0f4b651b8642506cd6aaf45d")},
-			{"bar", filemode.Regular, plumbing.NewHash("c029517f6300c2da0f4b651b8642506cd6aaf45d")},
-			{"baz", filemode.Regular, plumbing.NewHash("d029517f6300c2da0f4b651b8642506cd6aaf45d")},
+			{Name: "foo", Mode: filemode.Regular, Hash: plumbing.NewHash("b029517f6300c2da0f4b651b8642506cd6aaf45d")},
+			{Name: "bar", Mode: filemode.Regular, Hash: plumbing.NewHash("c029517f6300c2da0f4b651b8642506cd6aaf45d")},
+			{Name: "baz", Mode: filemode.Regular, Hash: plumbing.NewHash("d029517f6300c2da0f4b651b8642506cd6aaf45d")},
 		},
 	}
 
@@ -338,9 +339,9 @@ func (s *TreeSuite) TestTreeDecodeEncodeIdempotent() {
 	trees := []*Tree{
 		{
 			Entries: []TreeEntry{
-				{"foo", filemode.Regular, plumbing.NewHash("b029517f6300c2da0f4b651b8642506cd6aaf45d")},
-				{"bar", filemode.Regular, plumbing.NewHash("c029517f6300c2da0f4b651b8642506cd6aaf45d")},
-				{"baz", filemode.Regular, plumbing.NewHash("d029517f6300c2da0f4b651b8642506cd6aaf45d")},
+				{Name: "foo", Mode: filemode.Regular, Hash: plumbing.NewHash("b029517f6300c2da0f4b651b8642506cd6aaf45d")},
+				{Name: "bar", Mode: filemode.Regular, Hash: plumbing.NewHash("c029517f6300c2da0f4b651b8642506cd6aaf45d")},
+				{Name: "baz", Mode: filemode.Regular, Hash: plumbing.NewHash("d029517f6300c2da0f4b651b8642506cd6aaf45d")},
 			},
 		},
 	}
@@ -2082,40 +2083,88 @@ func TestTreeFindEntryFindsDirectoryAfterLexicallyEarlierFile(t *testing.T) {
 	assert.Equal(t, 0, bytes.Compare(hashB, got.Hash.Bytes()))
 }
 
-func TestTreeEncodePreservesDuplicateEntries(t *testing.T) {
+// TestTreeEncodeRejectsDuplicateEntries pins the duplicate-name check
+// in Tree.Encode. Two entries sharing a name — whether two files, two
+// directories, or a file/dir collision where the dir's sort name `foo/`
+// puts it elsewhere in the sorted order — must be rejected with
+// ErrDuplicateEntry rather than written to the object.
+func TestTreeEncodeRejectsDuplicateEntries(t *testing.T) {
 	t.Parallel()
 
-	hashABytes := bytes.Repeat([]byte{0xAA}, 20)
-	hashBBytes := bytes.Repeat([]byte{0xBB}, 20)
-	hashA, ok := plumbing.FromBytes(hashABytes)
+	hashA, ok := plumbing.FromBytes(bytes.Repeat([]byte{0xAA}, 20))
 	require.True(t, ok)
-	hashB, ok := plumbing.FromBytes(hashBBytes)
+	hashB, ok := plumbing.FromBytes(bytes.Repeat([]byte{0xBB}, 20))
 	require.True(t, ok)
 
-	tree := &Tree{
-		Entries: []TreeEntry{
-			{Name: "foo", Mode: filemode.Regular, Hash: hashA},
-			{Name: "foo", Mode: filemode.Regular, Hash: hashB},
+	cases := []struct {
+		name    string
+		entries []TreeEntry
+	}{
+		{
+			name: "two files with the same name",
+			entries: []TreeEntry{
+				{Name: "foo", Mode: filemode.Regular, Hash: hashA},
+				{Name: "foo", Mode: filemode.Regular, Hash: hashB},
+			},
+		},
+		{
+			name: "file and directory with the same name",
+			entries: []TreeEntry{
+				{Name: "foo", Mode: filemode.Regular, Hash: hashA},
+				{Name: "foo", Mode: filemode.Dir, Hash: hashB},
+			},
 		},
 	}
 
-	obj := &plumbing.MemoryObject{}
-	require.NoError(t, tree.Encode(obj))
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
 
-	r, err := obj.Reader()
-	require.NoError(t, err)
-	got, err := io.ReadAll(r)
-	require.NoError(t, err)
-	require.NoError(t, r.Close())
+			tree := &Tree{Entries: tc.entries}
+			sort.Sort(TreeEntrySorter(tree.Entries))
+			obj := &plumbing.MemoryObject{}
+			err := tree.Encode(obj)
+			require.ErrorIs(t, err, ErrDuplicateEntry)
+		})
+	}
+}
 
-	var want bytes.Buffer
-	want.WriteString("100644 foo")
-	want.WriteByte(0)
-	want.Write(hashABytes)
-	want.WriteString("100644 foo")
-	want.WriteByte(0)
-	want.Write(hashBBytes)
-	assert.Equal(t, want.Bytes(), got)
+// TestTreeEncodeRejectsDangerousNames pins the entry-name validation in
+// Tree.Encode: a tree assembled in memory with components that
+// pathutil.ValidTreePath refuses must fail at the encoder boundary so
+// the library cannot produce such tree objects through its API.
+func TestTreeEncodeRejectsDangerousNames(t *testing.T) {
+	t.Parallel()
+
+	hash, ok := plumbing.FromBytes(bytes.Repeat([]byte{0xAA}, 20))
+	require.True(t, ok)
+
+	cases := []struct {
+		name  string
+		entry string
+	}{
+		{"final-component .git", ".git"},
+		{"parent traversal", ".."},
+		{"current directory", "."},
+		{"NTFS trailing space on .git", ".git "},
+		{"NTFS short-name alias git~1", "git~1"},
+		{"HFS+ zero-width character in .git", ".g\u200cit"},
+		{"embedded NUL in name", "foo\x00bar"},
+		{"control character", "foo\x01bar"},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tree := &Tree{
+				Entries: []TreeEntry{{Name: tc.entry, Mode: filemode.Regular, Hash: hash}},
+			}
+			obj := &plumbing.MemoryObject{}
+			err := tree.Encode(obj)
+			require.ErrorIs(t, err, pathutil.ErrInvalidPath)
+		})
+	}
 }
 
 // TestTreeEntryFileRejectsDangerousNames pins the validation gate added
@@ -2214,4 +2263,203 @@ func TestTreeWalkerNextRejectsDangerousNames(t *testing.T) {
 			assert.ErrorIs(t, err, pathutil.ErrInvalidPath)
 		})
 	}
+}
+
+// TestTreeValidateAcceptsWellFormed pins the negative case: a tree
+// with canonical modes, sorted unique entries, and ordinary names
+// passes Validate cleanly. Anchors the rest of the rule-by-rule
+// coverage as deviations from this baseline.
+func TestTreeValidateAcceptsWellFormed(t *testing.T) {
+	t.Parallel()
+
+	hash := bytes.Repeat([]byte{0xAA}, 20)
+	body := encodeRawTreeEntries(
+		rawTreeEntry{"100644", "alpha", hash},
+		rawTreeEntry{"100755", "beta", hash},
+		rawTreeEntry{"120000", "gamma", hash},
+		rawTreeEntry{"40000", "subdir", hash},
+		rawTreeEntry{"160000", "submod", hash},
+	)
+	tree, err := decodeRawTree(t, body)
+	require.NoError(t, err)
+	assert.NoError(t, tree.Validate())
+}
+
+// TestTreeValidateRejectsFsckRules exercises each rule fsck_tree
+// enforces. Each case constructs a raw tree object that decodes
+// cleanly (Decode is intentionally permissive) and then asserts
+// Validate flags the corresponding rule. Sentinels are checked via
+// errors.Is where the rule has one; otherwise the error message is
+// matched.
+func TestTreeValidateRejectsFsckRules(t *testing.T) {
+	t.Parallel()
+
+	hash := bytes.Repeat([]byte{0xAA}, 20)
+	zero := make([]byte, 20)
+
+	cases := []struct {
+		name       string
+		entries    []rawTreeEntry
+		wantIs     error
+		wantString string
+	}{
+		{
+			name:       "null hash",
+			entries:    []rawTreeEntry{{"100644", "file", zero}},
+			wantString: "points to null hash",
+		},
+		{
+			name:       "slash in name",
+			entries:    []rawTreeEntry{{"100644", "dir/file", hash}},
+			wantString: "contains a slash",
+		},
+		{
+			name:    "dot component",
+			entries: []rawTreeEntry{{"100644", ".", hash}},
+			wantIs:  pathutil.ErrInvalidPath,
+		},
+		{
+			name:    "dotdot component",
+			entries: []rawTreeEntry{{"100644", "..", hash}},
+			wantIs:  pathutil.ErrInvalidPath,
+		},
+		{
+			name:    "dotgit component",
+			entries: []rawTreeEntry{{"100644", ".git", hash}},
+			wantIs:  pathutil.ErrInvalidPath,
+		},
+		{
+			name: "duplicate entries",
+			entries: []rawTreeEntry{
+				{"100644", "foo", hash},
+				{"100644", "foo", hash},
+			},
+			wantIs: ErrDuplicateEntry,
+		},
+		{
+			// canonicalTreeMode maps the non-canonical 0100664 down
+			// to the canonical Regular mode at Decode, so Validate
+			// sees a well-formed entry and accepts it. The rule is
+			// kept in the table to document that the canonicalising
+			// step swallows it.
+			name:       "0100664 normalises to Regular and validates",
+			entries:    []rawTreeEntry{{"100664", "file", hash}},
+			wantString: "",
+		},
+		{
+			name:       "symlinked .gitmodules",
+			entries:    []rawTreeEntry{{"120000", ".gitmodules", hash}},
+			wantString: ".gitmodules is a symlink",
+		},
+		{
+			name:       "symlinked .gitattributes",
+			entries:    []rawTreeEntry{{"120000", ".gitattributes", hash}},
+			wantString: ".gitattributes is a symlink",
+		},
+		{
+			name:       "symlinked .gitignore",
+			entries:    []rawTreeEntry{{"120000", ".gitignore", hash}},
+			wantString: ".gitignore is a symlink",
+		},
+		{
+			name:       "symlinked .mailmap",
+			entries:    []rawTreeEntry{{"120000", ".mailmap", hash}},
+			wantString: ".mailmap is a symlink",
+		},
+		{
+			name: "mis-sorted entries",
+			entries: []rawTreeEntry{
+				{"100644", "zeta", hash},
+				{"100644", "alpha", hash},
+			},
+			wantIs: ErrEntriesNotSorted,
+		},
+		{
+			name:       "name too long",
+			entries:    []rawTreeEntry{{"100644", strings.Repeat("a", maxTreeEntryNameLen+1), hash}},
+			wantString: "exceeds 4096",
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			tree, err := decodeRawTree(t, encodeRawTreeEntries(tc.entries...))
+			require.NoError(t, err, "Decode should be permissive")
+
+			err = tree.Validate()
+			if tc.wantIs == nil && tc.wantString == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.ErrorIs(t, err, ErrInvalidTree)
+			if tc.wantIs != nil {
+				assert.ErrorIs(t, err, tc.wantIs)
+			}
+			if tc.wantString != "" {
+				assert.Contains(t, err.Error(), tc.wantString)
+			}
+		})
+	}
+}
+
+// TestTreeValidateEmptyName covers the case fsck_tree calls
+// has_empty_name. Tree.Decode rejects an empty entry name at parse,
+// so the test constructs the in-memory tree directly to reach the
+// Validate rule.
+func TestTreeValidateEmptyName(t *testing.T) {
+	t.Parallel()
+
+	tree := &Tree{
+		Entries: []TreeEntry{{
+			Name: "",
+			Mode: filemode.Regular,
+			Hash: plumbing.NewHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+		}},
+	}
+	err := tree.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidTree)
+	assert.Contains(t, err.Error(), "empty entry name")
+}
+
+// TestTreeValidateBadInMemoryMode pins the bad-mode rule against
+// programmatically-constructed entries. Wire-decoded modes go through
+// canonicalTreeMode and always land on a valid value, so this rule is
+// only reachable when a caller sets a non-canonical Mode by hand.
+func TestTreeValidateBadInMemoryMode(t *testing.T) {
+	t.Parallel()
+
+	tree := &Tree{
+		Entries: []TreeEntry{{
+			Name: "file",
+			Mode: filemode.FileMode(0o12345),
+			Hash: plumbing.NewHash("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"),
+		}},
+	}
+	err := tree.Validate()
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrInvalidTree)
+	assert.Contains(t, err.Error(), "bad mode")
+}
+
+// TestTreeValidateReportsAllRules confirms that Validate accumulates
+// multiple rule violations into a single joined error rather than
+// returning on the first failure.
+func TestTreeValidateReportsAllRules(t *testing.T) {
+	t.Parallel()
+
+	zero := make([]byte, 20)
+	tree, err := decodeRawTree(t, encodeRawTreeEntries(
+		rawTreeEntry{"100644", "..", zero}, // dotdot + null hash
+	))
+	require.NoError(t, err)
+
+	verr := tree.Validate()
+	require.Error(t, verr)
+	assert.ErrorIs(t, verr, ErrInvalidTree)
+	assert.ErrorIs(t, verr, pathutil.ErrInvalidPath)
+	assert.Contains(t, verr.Error(), "null hash")
 }

@@ -312,6 +312,14 @@ func (h *buildTreeHelper) BuildTree(idx *index.Index, _ *CommitOptions) (plumbin
 }
 
 func (h *buildTreeHelper) commitIndexEntry(e *index.Entry) error {
+	// Index entries with a zero hash point at no object — Tree.Encode
+	// (through Tree.Validate) refuses to write them, and the pre-fsck
+	// behavior of #1773 was to accept the entry but never reach a
+	// healthy tree. Skip them here so the resulting tree is well-formed.
+	if e.Hash.IsZero() {
+		return nil
+	}
+
 	parts := strings.Split(e.Name, "/")
 
 	var fullpath string

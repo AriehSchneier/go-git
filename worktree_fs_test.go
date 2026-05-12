@@ -1,6 +1,7 @@
 package git
 
 import (
+	"bytes"
 	"fmt"
 	"os"
 	"os/exec"
@@ -531,15 +532,8 @@ func buildCommitWithEntry(t *testing.T, s storer.Storer, parent *object.Commit, 
 	leafHash := blobHash
 
 	for i := len(parts) - 1; i >= 1; i-- {
-		tree := &object.Tree{
-			Entries: []object.TreeEntry{
-				{Name: parts[i], Mode: leafMode, Hash: leafHash},
-			},
-		}
-		treeObj := s.NewEncodedObject()
-		require.NoError(t, tree.Encode(treeObj))
-		leafHash, err = s.SetEncodedObject(treeObj)
-		require.NoError(t, err)
+		entry := object.TreeEntry{Name: parts[i], Mode: leafMode, Hash: leafHash}
+		leafHash = storeRawTree(t, s, []object.TreeEntry{entry})
 		leafMode = filemode.Dir
 	}
 
@@ -553,12 +547,8 @@ func buildCommitWithEntry(t *testing.T, s storer.Storer, parent *object.Commit, 
 		Mode: leafMode,
 		Hash: leafHash,
 	})
-	rootTree := &object.Tree{Entries: entries}
-	sort.Sort(object.TreeEntrySorter(rootTree.Entries))
-	rootObj := s.NewEncodedObject()
-	require.NoError(t, rootTree.Encode(rootObj))
-	rootHash, err := s.SetEncodedObject(rootObj)
-	require.NoError(t, err)
+	sort.Sort(object.TreeEntrySorter(entries))
+	rootHash := storeRawTree(t, s, entries)
 
 	commit := &object.Commit{
 		Author:       *defaultSignature(),
@@ -575,6 +565,34 @@ func buildCommitWithEntry(t *testing.T, s storer.Storer, parent *object.Commit, 
 	result, err := object.GetCommit(s, commitHash)
 	require.NoError(t, err)
 	return result
+}
+
+// storeRawTree writes a tree object to s by assembling the raw
+// `<mode> SP <name> NUL <hash>` bytes for each entry. Tests that plant
+// trees containing components like ".git", "..", or HFS+/NTFS variants
+// use this helper because Tree.Encode runs Tree.Validate and refuses
+// those names — the escape hatch documented on Tree.Encode's godoc.
+func storeRawTree(t *testing.T, s storer.Storer, entries []object.TreeEntry) plumbing.Hash {
+	t.Helper()
+
+	var buf bytes.Buffer
+	for _, e := range entries {
+		fmt.Fprintf(&buf, "%o %s", e.Mode, e.Name)
+		buf.WriteByte(0)
+		buf.Write(e.Hash.Bytes())
+	}
+
+	obj := s.NewEncodedObject()
+	obj.SetType(plumbing.TreeObject)
+	w, err := obj.Writer()
+	require.NoError(t, err)
+	_, err = w.Write(buf.Bytes())
+	require.NoError(t, err)
+	require.NoError(t, w.Close())
+
+	hash, err := s.SetEncodedObject(obj)
+	require.NoError(t, err)
+	return hash
 }
 
 func gitConfig(t *testing.T, dir, key, value string) {

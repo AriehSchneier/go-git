@@ -97,3 +97,15 @@ func IsHFSDotGit(part string) bool { return IsHFSDot(part, "git") }
 // ".gitmodules", catching attempts to plant the file via Unicode
 // code points that HFS+ would strip during normalisation.
 func IsHFSDotGitmodules(part string) bool { return IsHFSDot(part, "gitmodules") }
+
+// IsHFSDotGitattributes reports whether part is an HFS+ equivalent of
+// ".gitattributes".
+func IsHFSDotGitattributes(part string) bool { return IsHFSDot(part, "gitattributes") }
+
+// IsHFSDotGitignore reports whether part is an HFS+ equivalent of
+// ".gitignore".
+func IsHFSDotGitignore(part string) bool { return IsHFSDot(part, "gitignore") }
+
+// IsHFSDotMailmap reports whether part is an HFS+ equivalent of
+// ".mailmap".
+func IsHFSDotMailmap(part string) bool { return IsHFSDot(part, "mailmap") }

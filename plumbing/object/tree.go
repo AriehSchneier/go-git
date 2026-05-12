@@ -31,7 +31,18 @@ var (
 	ErrEntryNotFound     = errors.New("entry not found")
 	ErrEntriesNotSorted  = errors.New("entries in tree are not sorted")
 	ErrMalformedTree     = errors.New("malformed tree")
+	ErrDuplicateEntry    = errors.New("duplicate entry in tree")
+	ErrInvalidTree       = errors.New("invalid tree")
 )
+
+// maxTreeEntryNameLen mirrors the default of upstream Git's
+// `fsck.treeEntryLargeName.maxTreeEntryLen` configuration (fsck.c
+// in v2.54.0[1]). 4096 bytes is well above any realistic tree-entry
+// name; entries longer than this almost always indicate a malformed
+// or hand-crafted tree object.
+//
+// [1]: https://github.com/git/git/blob/v2.54.0/fsck.c#L26
+const maxTreeEntryNameLen = 4096
 
 // Tree is basically like a directory - it references a bunch of other trees
 // and/or blobs (i.e. files and sub-directories)
@@ -385,8 +396,20 @@ func canonicalTreeMode(mode filemode.FileMode) filemode.FileMode {
 }
 
 // Encode transforms a Tree into a plumbing.EncodedObject.
-// The tree entries must be sorted by name.
+//
+// The tree is run through Tree.Validate before any bytes are written,
+// so the encoder cannot produce a tree object containing components
+// such as ".git", "..", control characters, HFS+/NTFS variants of
+// ".git", null entry hashes, oversize names, mis-sorted or duplicate
+// entries, or symlinks disguised as ".gitmodules"/".gitattributes"/
+// ".gitignore"/".mailmap". Callers that need to emit such bytes for
+// testing or recovery should write them directly via
+// plumbing.EncodedObject rather than through this method.
 func (t *Tree) Encode(o plumbing.EncodedObject) (err error) {
+	if err := t.Validate(); err != nil {
+		return err
+	}
+
 	o.SetType(plumbing.TreeObject)
 	w, err := o.Writer()
 	if err != nil {
@@ -395,14 +418,7 @@ func (t *Tree) Encode(o plumbing.EncodedObject) (err error) {
 
 	defer ioutil.CheckClose(w, &err)
 
-	if !sort.IsSorted(TreeEntrySorter(t.Entries)) {
-		return ErrEntriesNotSorted
-	}
-
 	for _, entry := range t.Entries {
-		if strings.IndexByte(entry.Name, 0) != -1 {
-			return fmt.Errorf("malformed filename %q", entry.Name)
-		}
 		if _, err = fmt.Fprintf(w, "%o %s", entry.Mode, entry.Name); err != nil {
 			return err
 		}
@@ -417,6 +433,112 @@ func (t *Tree) Encode(o plumbing.EncodedObject) (err error) {
 	}
 
 	return err
+}
+
+// Validate reports whether the tree object obeys the same structural
+// rules upstream Git's fsck_tree[1] enforces. It is the read-side
+// counterpart to Tree.Encode's producer-side gate: Decode is permissive
+// so that inspection and recovery tools can read trees with unusual
+// entries, and callers that want fsck-shaped reporting call Validate.
+//
+// The returned error wraps ErrInvalidTree (and, where applicable,
+// ErrEntriesNotSorted, ErrDuplicateEntry, or pathutil.ErrInvalidPath)
+// so callers can match either the umbrella or specific rule with
+// errors.Is. When multiple rules are violated they are reported
+// together via errors.Join.
+//
+// Two fsck_tree warnings — zero-padded modes and the non-canonical
+// 0100664 bits — are not surfaced here. Both rely on inspecting the
+// original octal string from the wire, which canonicalTreeMode
+// discards during Decode. Detecting them would require a parallel
+// raw-mode field on TreeEntry; the structural rules below are the
+// load-bearing ones for refusing malformed trees.
+//
+// [1]: https://github.com/git/git/blob/v2.54.0/fsck.c#L616-L800
+func (t *Tree) Validate() error {
+	var errs []error
+	add := func(err error) {
+		errs = append(errs, fmt.Errorf("%w: %w", ErrInvalidTree, err))
+	}
+
+	seen := make(map[string]struct{}, len(t.Entries))
+	var prevSortName string
+
+	for i := range t.Entries {
+		e := &t.Entries[i]
+
+		if e.Hash.IsZero() {
+			add(fmt.Errorf("entry %q points to null hash", e.Name))
+		}
+
+		switch {
+		case e.Name == "":
+			add(errors.New("contains empty entry name"))
+		case strings.ContainsRune(e.Name, '/'):
+			add(fmt.Errorf("entry name %q contains a slash", e.Name))
+		default:
+			if err := pathutil.ValidTreePath(e.Name); err != nil {
+				add(err)
+			}
+			if _, dup := seen[e.Name]; dup {
+				add(fmt.Errorf("%w: %q", ErrDuplicateEntry, e.Name))
+			}
+			seen[e.Name] = struct{}{}
+
+			if len(e.Name) > maxTreeEntryNameLen {
+				add(fmt.Errorf("entry name length %d exceeds %d", len(e.Name), maxTreeEntryNameLen))
+			}
+		}
+
+		// Mode validation against the canonical set. Decode normalises
+		// the wire bytes via canonicalTreeMode, so this rule mainly
+		// catches programmatically-built trees with garbage modes;
+		// the zero-padded-mode and non-canonical-bit checks fsck_tree
+		// runs against the raw wire form are out of reach without
+		// retaining the original octal string.
+		if !isValidTreeMode(e.Mode) {
+			add(fmt.Errorf("entry %q has bad mode %o", e.Name, e.Mode))
+		}
+
+		// Symlink-disguised metadata files. Mirrors the four FSCK_MSG_*
+		// _SYMLINK reports in fsck_tree.
+		if e.Mode == filemode.Symlink {
+			switch {
+			case pathutil.IsHFSDotGitmodules(e.Name) || pathutil.IsNTFSDotGitmodules(e.Name):
+				add(errors.New(".gitmodules is a symlink"))
+			case pathutil.IsHFSDotGitattributes(e.Name) || pathutil.IsNTFSDotGitattributes(e.Name):
+				add(errors.New(".gitattributes is a symlink"))
+			case pathutil.IsHFSDotGitignore(e.Name) || pathutil.IsNTFSDotGitignore(e.Name):
+				add(errors.New(".gitignore is a symlink"))
+			case pathutil.IsHFSDotMailmap(e.Name) || pathutil.IsNTFSDotMailmap(e.Name):
+				add(errors.New(".mailmap is a symlink"))
+			}
+		}
+
+		sortName := treeEntrySortName(e)
+		if i > 0 && prevSortName > sortName {
+			add(ErrEntriesNotSorted)
+		}
+		prevSortName = sortName
+	}
+
+	return errors.Join(errs...)
+}
+
+// isValidTreeMode reports whether mode is one of the canonical tree
+// modes upstream Git accepts in fsck_tree, including the non-canonical
+// 0100664 that upstream tolerates outside --strict mode.
+func isValidTreeMode(mode filemode.FileMode) bool {
+	switch mode {
+	case filemode.Regular,
+		filemode.Executable,
+		filemode.Symlink,
+		filemode.Dir,
+		filemode.Submodule,
+		filemode.Deprecated:
+		return true
+	}
+	return false
 }
 
 // Diff returns a list of changes between this tree and the provided one
