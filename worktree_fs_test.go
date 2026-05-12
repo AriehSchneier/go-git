@@ -197,7 +197,7 @@ func assertOpsRejected(t *testing.T, fs *worktreeFilesystem, p string) {
 	assert.ErrorContains(t, err, "readlink:", "Readlink should reject %q", p)
 }
 
-func TestWorktreeFilesystemSymlinkRejectsDangerousPaths(t *testing.T) {
+func TestWorktreeFilesystemSymlinkRejectsDangerousLinkNames(t *testing.T) {
 	t.Parallel()
 
 	badPaths := []string{
@@ -218,9 +218,6 @@ func TestWorktreeFilesystemSymlinkRejectsDangerousPaths(t *testing.T) {
 			err := fs.Symlink("safe-target.txt", p)
 			assert.ErrorContains(t, err, "symlink:", "Symlink should reject link name %q", p)
 
-			err = fs.Symlink(p, "safe-link")
-			assert.ErrorContains(t, err, "symlink:", "Symlink should reject target %q", p)
-
 			assertOpsRejected(t, fs, p)
 		})
 	}
@@ -238,6 +235,34 @@ func TestWorktreeFilesystemSymlinkAllowsValidLink(t *testing.T) {
 	assert.Equal(t, "target.txt", got)
 
 	assertOpsRejected(t, fs, ".git/config")
+}
+
+func TestWorktreeFilesystemSymlinkAllowsArbitraryTargets(t *testing.T) {
+	t.Parallel()
+
+	targets := []string{
+		"/etc/passwd",
+		"/absolute/path/to/file",
+		"../sibling",
+		"../../elsewhere",
+		"a/../b",
+		".git/config",
+	}
+
+	for _, target := range targets {
+		t.Run(target, func(t *testing.T) {
+			t.Parallel()
+
+			fs := newWorktreeFilesystem(memfs.New(), false, false)
+
+			link := "link"
+			require.NoError(t, fs.Symlink(target, link))
+
+			got, err := fs.Readlink(link)
+			require.NoError(t, err)
+			assert.Equal(t, filepath.FromSlash(target), got)
+		})
+	}
 }
 
 func TestWorktreeFilesystemReadlinkValidatesPath(t *testing.T) {
@@ -357,9 +382,6 @@ func TestWorktreeFilesystemAbsolutePaths(t *testing.T) {
 
 				err := fs.Symlink("safe-target.txt", tc.path)
 				assert.ErrorContains(t, err, "symlink:", "Symlink should reject link %q", tc.path)
-
-				err = fs.Symlink(tc.path, "safe-link")
-				assert.ErrorContains(t, err, "symlink:", "Symlink should reject target %q", tc.path)
 				return
 			}
 
