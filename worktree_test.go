@@ -527,6 +527,56 @@ func (s *WorktreeSuite) TestCheckoutSymlink() {
 	s.NoError(err)
 }
 
+func TestCheckoutSymlinkArbitraryTarget(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git doesn't support symlinks by default in windows")
+	}
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		target string
+	}{
+		{name: "rel", target: "target"},
+		{name: "absolute", target: "/etc/passwd"},
+		{name: "dot-dot relative", target: "../../outside"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			dir := t.TempDir()
+
+			r, err := PlainInit(dir, false)
+			require.NoError(t, err)
+
+			w, err := r.Worktree()
+			require.NoError(t, err)
+
+			require.NoError(t, w.filesystem.Symlink(tc.target, "link"))
+			_, err = w.Add("link")
+			require.NoError(t, err)
+			_, err = w.Commit("add symlink", &CommitOptions{Author: defaultSignature()})
+			require.NoError(t, err)
+
+			require.NoError(t, r.Storer.SetIndex(&index.Index{Version: 2}))
+			w.filesystem = newWorktreeFilesystem(
+				osfs.New(filepath.Join(dir, "worktree-empty")), true, true)
+
+			require.NoError(t, w.Checkout(&CheckoutOptions{}))
+
+			status, err := w.Status()
+			require.NoError(t, err)
+			assert.True(t, status.IsClean())
+
+			got, err := w.filesystem.Readlink("link")
+			require.NoError(t, err)
+			assert.Equal(t, tc.target, got)
+		})
+	}
+}
+
 func (s *WorktreeSuite) TestCheckoutSparse() {
 	fs := memfs.New()
 	r, err := Clone(memory.NewStorage(), fs, &CloneOptions{
