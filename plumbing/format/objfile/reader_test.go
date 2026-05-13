@@ -106,3 +106,57 @@ func (s *SuiteReader) TestReadCorruptZLib() {
 	_, _, err = r.Header()
 	s.NotNil(err)
 }
+
+func (s *SuiteReader) TestReaderReadBeforeHeader() {
+	tests := []struct {
+		name         string
+		objectFormat format.ObjectFormat
+		wantSize     int
+	}{
+		{name: "sha1", objectFormat: format.SHA1, wantSize: format.SHA1Size},
+		{name: "sha256", objectFormat: format.SHA256, wantSize: format.SHA256Size},
+	}
+
+	for _, tt := range tests {
+		s.Run(tt.name, func() {
+			data, _ := base64.StdEncoding.DecodeString(objfileFixtures[0].data)
+			source := bytes.NewReader(data)
+
+			r, err := NewReader(source, tt.objectFormat)
+			s.NoError(err)
+			defer r.Close()
+
+			var buf [16]byte
+			n, err := r.Read(buf[:])
+			s.ErrorIs(err, ErrHeaderNotRead)
+			s.Equal(0, n)
+
+			// The zero hash must carry the Reader's configured object
+			// format so callers that serialise it emit the right number
+			// of bytes.
+			h := r.Hash()
+			s.True(h.IsZero())
+			s.Equal(tt.wantSize, h.Size())
+		})
+	}
+}
+
+func (s *SuiteReader) TestReaderReadAfterHeaderError() {
+	// This zlib stream decompresses to bytes that do not form a valid
+	// loose-object header, so Header() returns an error.
+	data, _ := base64.StdEncoding.DecodeString("eAFLysaalPUjBgAAAJsAHw")
+	source := bytes.NewReader(data)
+
+	r, err := NewReader(source, format.SHA1)
+	s.NoError(err)
+	defer r.Close()
+
+	_, _, err = r.Header()
+	s.Error(err)
+
+	// Read must return an error rather than accessing uninitialised state.
+	var buf [16]byte
+	n, readErr := r.Read(buf[:])
+	s.Error(readErr)
+	s.Equal(0, n)
+}
