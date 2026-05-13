@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto"
 	"testing"
+	"testing/fstest"
 
 	"github.com/go-git/go-git/v6/plumbing"
 	"github.com/go-git/go-git/v6/plumbing/hash"
@@ -96,8 +97,15 @@ func FuzzMemoryIndex(f *testing.F) {
 	f.Add([]byte{})
 
 	f.Fuzz(func(_ *testing.T, idxData []byte) {
+		// fstest.MapFS instead of the FromBytes helper so this file
+		// compiles under OSS-Fuzz, which rewrites fuzz_test.go to a
+		// non-test name and cannot see test-only helpers.
+		in, err := fstest.MapFS{"idx": {Data: idxData}}.Open("idx")
+		if err != nil {
+			return
+		}
 		idx := new(MemoryIndex)
-		d := NewDecoder(bytes.NewReader(idxData), hash.New(crypto.SHA1))
+		d := NewDecoder(in, hash.New(crypto.SHA1))
 		if err := d.Decode(idx); err != nil {
 			// Expected for most fuzz inputs.
 			return

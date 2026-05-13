@@ -161,13 +161,15 @@ var fixtureOffsets = []int64{
 }
 
 func fixtureIndex() (*idxfile.MemoryIndex, error) {
-	f := bytes.NewBufferString(fixtureLarge4GB)
+	raw, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, bytes.NewBufferString(fixtureLarge4GB)))
+	if err != nil {
+		return nil, fmt.Errorf("unexpected error decoding fixture: %s", err)
+	}
 
 	idx := new(idxfile.MemoryIndex)
 
-	d := idxfile.NewDecoder(base64.NewDecoder(base64.StdEncoding, f), hash.New(crypto.SHA1))
-	err := d.Decode(idx)
-	if err != nil {
+	d := idxfile.NewDecoder(idxfile.FromBytes(raw), hash.New(crypto.SHA1))
+	if err := d.Decode(idx); err != nil {
 		return nil, fmt.Errorf("unexpected error decoding index: %s", err)
 	}
 
