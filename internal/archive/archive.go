@@ -61,6 +61,10 @@ var (
 	// ErrInvalidPrefix is returned when the requested archive prefix contains
 	// path traversal sequences.
 	ErrInvalidPrefix = errors.New("invalid archive prefix")
+
+	// ErrUnsupportedFormat is returned when the requested archive format is
+	// not supported.
+	ErrUnsupportedFormat = errors.New("unsupported archive format")
 )
 
 const maxTarSymlinkTargetSize = 64 * 1024
@@ -461,26 +465,14 @@ func GetTarCommitID(r io.Reader) (*plumbing.Hash, error) {
 	return &hash, nil
 }
 
-// WriteArchive generates an archive from the repository and writes it to w.
+// WriteArchive generates an archive from a resolved tree and writes it to w.
 //
-// Args follow the same format as git-archive: [options...] <tree-ish> [paths...]
 // Supported formats: tar, zip, tar.gz, tgz.
 // The prefix is prepended to all file paths in the archive.
 // The paths slice can be used to filter which files are included.
-// If allowUnreachable is false, only ref names are allowed (no raw hashes).
-func WriteArchive(st storage.Storer, w io.Writer, treeish, format, prefix string,
-	paths []string, allowUnreachable bool,
-) error {
-	if treeish == "" {
-		return fmt.Errorf("no tree-ish specified")
-	}
-	if hasInvalidArchivePrefix(prefix) {
+func WriteArchive(st storage.Storer, w io.Writer, tree *object.Tree, commitHash *plumbing.Hash, commitTime time.Time, format, prefix string, paths []string) error {
+	if HasInvalidPrefix(prefix) {
 		return fmt.Errorf("%w: %s", ErrInvalidPrefix, prefix)
-	}
-
-	tree, commitHash, commitTime, err := ResolveTreeish(st, treeish, allowUnreachable)
-	if err != nil {
-		return err
 	}
 
 	switch format {
@@ -495,11 +487,15 @@ func WriteArchive(st storage.Storer, w io.Writer, treeish, format, prefix string
 	case "zip":
 		return WriteZipArchive(st, w, tree, commitHash, prefix, paths, commitTime)
 	default:
-		return fmt.Errorf("unsupported archive format: %s", format)
+		return fmt.Errorf("%w: %s", ErrUnsupportedFormat, format)
 	}
 }
 
-func hasInvalidArchivePrefix(prefix string) bool {
+// HasInvalidPrefix reports whether prefix contains path traversal
+// sequences ("..") or starts with an absolute path separator ("/" or "\").
+// Both local and remote archive paths should call this before accepting a
+// user-supplied prefix.
+func HasInvalidPrefix(prefix string) bool {
 	if strings.HasPrefix(prefix, "/") || strings.HasPrefix(prefix, "\\") {
 		return true
 	}
