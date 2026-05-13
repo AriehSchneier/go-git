@@ -109,7 +109,7 @@ func (o *ondemandObject) Reader() (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &zlibReadCloser{r: zr, rbuf: br}, nil
+	return packfile.NewBoundedReadCloser(&zlibReadCloser{r: zr, rbuf: br}, o.size), nil
 }
 
 // Hash holds the object's ID.

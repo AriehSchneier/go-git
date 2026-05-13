@@ -95,7 +95,7 @@ func (o *FSObject) Reader() (io.ReadCloser, error) {
 		}
 		return nil, err
 	}
-	return &zlibReadCloser{r: zr, f: file, rbuf: br}, nil
+	return NewBoundedReadCloser(&zlibReadCloser{r: zr, f: file, rbuf: br}, o.size), nil
 }
 
 type zlibReadCloser struct {

@@ -252,7 +252,7 @@ func (p *Parser) ensureContent(oh *ObjectHeader) error {
 		deltaData := sync.GetBytesBuffer()
 		defer sync.PutBytesBuffer(deltaData)
 
-		err = p.scanner.inflateContent(oh.ContentOffset, deltaData)
+		err = p.scanner.inflateContent(oh.ContentOffset, deltaData, oh.Size)
 		if err != nil {
 			return fmt.Errorf("inflating content at offset %v: %w", oh.ContentOffset, err)
 		}
@@ -355,7 +355,7 @@ func (p *Parser) parentReader(parent *ObjectHeader) (io.ReaderAt, error) {
 	}
 	parent.content.Grow(growHint(parent.Size))
 
-	err := p.scanner.inflateContent(parent.ContentOffset, parent.content)
+	err := p.scanner.inflateContent(parent.ContentOffset, parent.content, parent.Size)
 	if err != nil {
 		return nil, ErrReferenceDeltaNotFound
 	}
