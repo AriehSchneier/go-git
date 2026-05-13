@@ -52,6 +52,7 @@ func TestSubmoduleWindowsAbsoluteURLNotJoined(t *testing.T) {
 
 			subRepo, err := sub.Repository()
 			require.NoError(t, err)
+			defer func() { _ = subRepo.Close() }()
 
 			remotes, err := subRepo.Remotes()
 			require.NoError(t, err)

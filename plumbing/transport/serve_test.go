@@ -28,13 +28,6 @@ func testServe[T UploadPackRequest | ReceivePackRequest](
 	r io.ReadCloser,
 	opts *T,
 ) *bytes.Buffer {
-	// Release any file descriptors the storage holds (notably .idx
-	// readers managed by sharedFile) before t.TempDir's cleanup runs.
-	// On Windows the default grace period otherwise keeps the .idx
-	// file open and RemoveAll fails with "file in use".
-	if c, ok := st.(io.Closer); ok {
-		t.Cleanup(func() { _ = c.Close() })
-	}
 	var out bytes.Buffer
 	err := fun(
 		context.TODO(),
@@ -65,6 +58,7 @@ func testAdvertise[T UploadPackRequest | ReceivePackRequest](
 		t.Fatal(err)
 	}
 	st := filesystem.NewStorage(dot, cache.NewObjectLRUDefault())
+	defer func() { _ = st.Close() }()
 	opts := new(T)
 	switch o := any(opts).(type) {
 	case *UploadPackRequest:
