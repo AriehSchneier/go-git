@@ -65,6 +65,7 @@ func (s *FsSuite) TestIterEncodedObjectsSHA256HashesRoundTrip() {
 	s.Require().NoError(err)
 
 	o := NewStorage(fs, cache.NewObjectLRUDefault())
+	defer func() { _ = o.Close() }()
 
 	iter, err := o.IterEncodedObjects(plumbing.AnyObject)
 	s.Require().NoError(err)
@@ -87,6 +88,7 @@ func (s *FsSuite) TestSetEncodedObjectSHA256LooseObjectRoundTrip() {
 		Options{ObjectFormat: formatcfg.SHA256},
 	)
 	s.Require().NoError(o.Init())
+	defer func() { _ = o.Close() }()
 
 	obj := o.NewEncodedObject()
 	obj.SetType(plumbing.BlobObject)
@@ -302,6 +304,7 @@ func (s *FsSuite) TestIter() {
 		fs, err := f.DotGit()
 		s.Require().NoError(err)
 		o := NewStorage(fs, cache.NewObjectLRUDefault())
+		defer func() { _ = o.Close() }()
 
 		iter, err := o.IterEncodedObjects(plumbing.AnyObject)
 		s.Require().NoError(err)
@@ -322,6 +325,7 @@ func (s *FsSuite) TestIterLargeObjectThreshold() {
 		fs, err := f.DotGit()
 		s.Require().NoError(err)
 		o := NewStorageWithOptions(fs, cache.NewObjectLRUDefault(), Options{LargeObjectThreshold: 1})
+		defer func() { _ = o.Close() }()
 
 		iter, err := o.IterEncodedObjects(plumbing.AnyObject)
 		s.Require().NoError(err)
@@ -343,12 +347,13 @@ func (s *FsSuite) TestIterWithType() {
 			fs, err := f.DotGit()
 			s.Require().NoError(err)
 			o := NewStorage(fs, cache.NewObjectLRUDefault())
+			s.T().Cleanup(func() { _ = o.Close() })
 
 			iter, err := o.IterEncodedObjects(t)
 			s.Require().NoError(err)
 
-			err = iter.ForEach(func(o plumbing.EncodedObject) error {
-				s.Equal(t, o.Type())
+			err = iter.ForEach(func(obj plumbing.EncodedObject) error {
+				s.Equal(t, obj.Type())
 				return nil
 			})
 
@@ -430,6 +435,7 @@ func (s *FsSuite) TestPackfileReindex() {
 		fs, err := f.DotGit()
 		s.Require().NoError(err)
 		storer := NewStorage(fs, cache.NewObjectLRUDefault())
+		defer func() { _ = storer.Close() }()
 
 		// check that our test object is NOT found
 		_, err = storer.EncodedObject(plumbing.CommitObject, testObjectHash)

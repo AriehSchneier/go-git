@@ -20,6 +20,7 @@ func main() {
 
 	dotgitFs := osfs.New(filepath.Join(path, ".git"), osfs.WithBoundOS())
 	dotgit := filesystem.NewStorageWithOptions(dotgitFs, nil, filesystem.Options{})
+	defer func() { _ = dotgit.Close() }()
 
 	w, err := xworktree.New(dotgit)
 	CheckIfError(err)
@@ -37,6 +38,7 @@ func main() {
 	Info("opening linked worktree at %q", wtPath)
 	r, err := w.Open(worktreeFs)
 	CheckIfError(err)
+	defer func() { _ = r.Close() }()
 
 	ref, err := r.Head()
 	CheckIfError(err)

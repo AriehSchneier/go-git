@@ -70,6 +70,7 @@ func (s *WorktreeSuite) TestCommitEmptyOptions() {
 	fs := memfs.New()
 	r, err := Init(memory.NewStorage(), WithWorkTree(fs))
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -96,6 +97,7 @@ func (s *WorktreeSuite) TestCommitInitial() {
 
 	r, err := Init(storage, WithWorkTree(fs))
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -138,6 +140,7 @@ func (s *WorktreeSuite) TestCommitInitialObjectFormats() {
 
 			r, err := Init(storage, WithWorkTree(fs), WithObjectFormat(tt.objectFormat))
 			s.Require().NoError(err)
+			defer func() { _ = r.Close() }()
 
 			w, err := r.Worktree()
 			s.Require().NoError(err)
@@ -182,6 +185,7 @@ func (s *WorktreeSuite) TestSetReferencesInSHA256Repository() {
 
 	r, err := Init(storage, WithWorkTree(fs), WithObjectFormat(formatcfg.SHA256))
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -224,6 +228,7 @@ func (s *WorktreeSuite) TestNothingToCommit() {
 
 	r, err := Init(memory.NewStorage(), WithWorkTree(memfs.New()))
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -241,6 +246,7 @@ func (s *WorktreeSuite) TestNothingToCommitNonEmptyRepo() {
 	fs := memfs.New()
 	r, err := Init(memory.NewStorage(), WithWorkTree(fs))
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -264,6 +270,7 @@ func (s *WorktreeSuite) TestRemoveAndCommitToMakeEmptyRepo() {
 	fs := memfs.New()
 	r, err := Init(memory.NewStorage(), WithWorkTree(fs))
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -430,6 +437,7 @@ func TestCount(t *testing.T) {
 	t.Parallel()
 	f := fixtures.Basic().One()
 	r := NewRepositoryWithEmptyWorktree(f)
+	defer func() { _ = r.Close() }()
 
 	iter, err := r.CommitObjects()
 	require.NoError(t, err)
@@ -479,6 +487,7 @@ func TestAddAndCommitWithSkipStatus(t *testing.T) {
 	f := fixtures.Basic().One()
 	fs := memfs.New()
 	r := NewRepositoryWithEmptyWorktree(f)
+	defer func() { _ = r.Close() }()
 	w := &Worktree{
 		r:          r,
 		filesystem: newWorktreeFilesystem(fs, defaultProtectNTFS(), defaultProtectHFS()),
@@ -680,6 +689,7 @@ func (s *WorktreeSuite) TestCherryPick() {
 
 	r, err := Init(memory.NewStorage(), WithWorkTree(fs))
 	s.Require().NoError(err, "init the repository")
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -793,6 +803,7 @@ func (s *WorktreeSuite) TestCherryPickRejectsInvalidPaths() {
 	storage := memory.NewStorage()
 	r, err := Init(storage, WithWorkTree(fs))
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -898,13 +909,15 @@ func (s *WorktreeSuite) TestCommitTreeSort() {
 	fs := s.TemporalFilesystem()
 
 	st := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
-	_, err := Init(st)
+	rInit, err := Init(st)
 	s.Require().NoError(err)
+	defer func() { _ = rInit.Close() }()
 
 	r, err := Clone(memory.NewStorage(), memfs.New(), &CloneOptions{
 		URL: fs.Root(),
 	})
 	s.ErrorIs(err, transport.ErrEmptyRemoteRepository)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -950,6 +963,7 @@ func (s *WorktreeSuite) TestJustStoreObjectsNotAlreadyStored() {
 
 	r, err := Init(storage, WithWorkTree(fs))
 	s.Require().NoError(err)
+	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.Require().NoError(err)
@@ -1002,16 +1016,19 @@ func (s *WorktreeSuite) TestJustStoreObjectsNotAlreadyStored() {
 func (s *WorktreeSuite) TestCommitInvalidCharactersInAuthorInfos() {
 	f := fixtures.Basic().One()
 	s.Repository = NewRepositoryWithEmptyWorktree(f)
+	r1 := s.Repository
+	s.T().Cleanup(func() { _ = r1.Close() })
 
 	expected := plumbing.NewHash("e8eecef2524c3a37cf0f0996603162f81e0373f1")
 
 	fs := memfs.New()
 	storage := memory.NewStorage()
 
-	r, err := Init(storage, WithWorkTree(fs))
+	r2, err := Init(storage, WithWorkTree(fs))
 	s.Require().NoError(err)
+	defer func() { _ = r2.Close() }()
 
-	w, err := r.Worktree()
+	w, err := r2.Worktree()
 	s.Require().NoError(err)
 
 	util.WriteFile(fs, "foo", []byte("foo"), 0o644)
@@ -1023,10 +1040,10 @@ func (s *WorktreeSuite) TestCommitInvalidCharactersInAuthorInfos() {
 	s.Equal(expected, hash)
 	s.Require().NoError(err)
 
-	assertStorageStatus(s, r, 1, 1, 1, expected)
+	assertStorageStatus(s, r2, 1, 1, 1, expected)
 
 	// Check HEAD commit contains author informations with '<', '>' and '\n' stripped
-	lr, err := r.Log(&LogOptions{})
+	lr, err := r2.Log(&LogOptions{})
 	s.Require().NoError(err)
 
 	commit, err := lr.Next()
@@ -1208,6 +1225,7 @@ func TestBuildCommitObjectSignerSelection(t *testing.T) { //nolint:paralleltest 
 			fs := memfs.New()
 			r, err := Init(memory.NewStorage(), WithWorkTree(fs))
 			require.NoError(t, err)
+			defer func() { _ = r.Close() }()
 
 			cfg, err := r.Config()
 			require.NoError(t, err)

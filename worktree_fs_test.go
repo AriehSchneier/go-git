@@ -173,6 +173,7 @@ func TestWorktreeFilesystemReturnsWorktreeFilesystem(t *testing.T) {
 		mfs := memfs.New()
 		r, err := Init(memory.NewStorage(), WithWorkTree(mfs))
 		require.NoError(t, err)
+		defer func() { _ = r.Close() }()
 
 		w, err := r.Worktree()
 		require.NoError(t, err)
@@ -514,10 +515,11 @@ func TestCherryPickPathValidationMatchesGit(t *testing.T) {
 
 			dir := t.TempDir()
 
-			r, err := PlainInit(dir, false)
+			r1, err := PlainInit(dir, false)
 			require.NoError(t, err)
+			defer func() { _ = r1.Close() }()
 
-			w, err := r.Worktree()
+			w, err := r1.Worktree()
 			require.NoError(t, err)
 
 			require.NoError(t, util.WriteFile(w.Filesystem(), "README", []byte("init"), 0o644))
@@ -531,16 +533,17 @@ func TestCherryPickPathValidationMatchesGit(t *testing.T) {
 				gitConfig(t, dir, k, v)
 			}
 
-			initCommit, err := r.CommitObject(initHash)
+			initCommit, err := r1.CommitObject(initHash)
 			require.NoError(t, err)
 
-			badCommit := buildCommitWithEntry(t, r.Storer, initCommit, initHash, tc.path, filemode.Regular)
+			badCommit := buildCommitWithEntry(t, r1.Storer, initCommit, initHash, tc.path, filemode.Regular)
 
 			// Re-open so config overrides take effect in the worktreeFilesystem.
-			r, err = PlainOpen(dir)
+			r2, err := PlainOpen(dir)
 			require.NoError(t, err)
+			defer func() { _ = r2.Close() }()
 
-			w, err = r.Worktree()
+			w, err = r2.Worktree()
 			require.NoError(t, err)
 
 			goGitErr := w.CherryPick(
@@ -724,6 +727,7 @@ func TestResetAcceptsLegitPaths(t *testing.T) {
 
 			r, err := PlainInit(dir, false)
 			require.NoError(t, err)
+			defer func() { _ = r.Close() }()
 
 			w, err := r.Worktree()
 			require.NoError(t, err)
@@ -787,6 +791,7 @@ func TestAddRejectsDangerousPaths(t *testing.T) {
 			fs := memfs.New()
 			r, err := Init(memory.NewStorage(), WithWorkTree(fs))
 			require.NoError(t, err)
+			defer func() { _ = r.Close() }()
 
 			w, err := r.Worktree()
 			require.NoError(t, err)
@@ -831,6 +836,7 @@ func TestMoveRejectsDangerousDestinations(t *testing.T) {
 			fs := memfs.New()
 			r, err := Init(memory.NewStorage(), WithWorkTree(fs))
 			require.NoError(t, err)
+			defer func() { _ = r.Close() }()
 
 			w, err := r.Worktree()
 			require.NoError(t, err)

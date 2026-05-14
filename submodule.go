@@ -89,6 +89,7 @@ func (s *Submodule) status(idx *index.Index) (*SubmoduleStatus, error) {
 	if err != nil {
 		return nil, err
 	}
+	defer func() { _ = r.Close() }()
 
 	head, err := r.Head()
 	if err == nil {
@@ -149,17 +150,20 @@ func (s *Submodule) Repository() (*Repository, error) {
 
 	moduleEndpoint, err := transport.ParseURL(s.c.URL)
 	if err != nil {
+		_ = r.Close()
 		return nil, err
 	}
 
 	if !path.IsAbs(moduleEndpoint.Path) && !filepath.IsAbs(moduleEndpoint.Path) && moduleEndpoint.Scheme == "file" {
 		base, err := defaultRemote(s.w.r)
 		if err != nil {
+			_ = r.Close()
 			return nil, fmt.Errorf("resolving relative submodule URL: %w", err)
 		}
 
 		rootEndpoint, err := transport.ParseURL(base.URLs[0])
 		if err != nil {
+			_ = r.Close()
 			return nil, err
 		}
 
@@ -171,8 +175,12 @@ func (s *Submodule) Repository() (*Repository, error) {
 		Name: DefaultRemoteName,
 		URLs: []string{moduleEndpoint.String()},
 	})
+	if err != nil {
+		_ = r.Close()
+		return nil, err
+	}
 
-	return r, err
+	return r, nil
 }
 
 // defaultRemote returns the remote that relative submodule URLs are
@@ -269,6 +277,7 @@ func (s *Submodule) update(ctx context.Context, o *SubmoduleUpdateOptions, force
 	if err != nil {
 		return err
 	}
+	defer func() { _ = r.Close() }()
 
 	if err := s.fetchAndCheckout(ctx, r, o, hash); err != nil {
 		return err
