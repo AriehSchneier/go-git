@@ -51,13 +51,16 @@ jobs:
         run: |
           go build ./...
           # Compile test files for CodeQL analysis
+          mkdir -p /tmp/codeql-build
           for pkg in $(go list ./...); do
-            go test -c "$pkg" -o /dev/null 2>/dev/null || true
+            go test -c "$pkg" -o "/tmp/codeql-build/$(basename $pkg).test" || true
           done
           # Compile examples (ignored by ./... due to _ prefix)
-          for example in _examples/*/main.go _examples/*/*/main.go; do
-            if [ -f "$example" ]; then
-              go build -o /dev/null "$example" 2>/dev/null || true
+          # Build from example directories to ensure proper module context
+          find _examples -type d -mindepth 1 -maxdepth 2 | while read dir; do
+            if [ -f "$dir/main.go" ]; then
+              echo "Building example: $dir"
+              (cd "$dir" && go build -o "/tmp/codeql-build/$(basename $dir)" .) || true
             fi
           done
 
