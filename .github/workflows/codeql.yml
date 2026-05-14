@@ -44,6 +44,8 @@ jobs:
           # xref: https://docs.github.com/en/code-security/code-scanning/automatically-scanning-your-code-for-vulnerabilities-and-errors/configuring-code-scanning#using-queries-in-ql-packs
           # xref: https://codeql.github.com/codeql-query-help/go/
           config-file: ./.github/codeql/codeql-config.yml
+        env:
+          CODEQL_EXTRACTOR_GO_OPTION_EXTRACT_TESTS: true
 
       - name: Manual Build
         run: go build ./...
