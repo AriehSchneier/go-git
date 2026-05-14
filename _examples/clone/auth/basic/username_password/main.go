@@ -27,7 +27,6 @@ func main() {
 		},
 	})
 	CheckIfError(err)
-	defer func() { _ = r.Close() }()
 
 	ref, err := r.Head()
 	CheckIfError(err)

@@ -1,7 +1,6 @@
 package transactional
 
 import (
-	"io"
 	"testing"
 
 	"github.com/go-git/go-billy/v6/memfs"
@@ -21,11 +20,6 @@ func TestCommit(t *testing.T) {
 	base := memory.NewStorage()
 	temporal := filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault())
 	st := NewStorage(base, temporal)
-	defer func() {
-		if closer, ok := st.(io.Closer); ok {
-			_ = closer.Close()
-		}
-	}()
 
 	commit := base.NewEncodedObject()
 	commit.SetType(plumbing.CommitObject)
@@ -51,13 +45,11 @@ func TestCommit(t *testing.T) {
 func TestTransactionalPackfileWriter(t *testing.T) {
 	t.Parallel()
 	base := memory.NewStorage()
-	temporal := storage.Storer(filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault()))
+	var temporal storage.Storer
+
+	store := filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault())
+	temporal = store
 	st := NewStorage(base, temporal)
-	defer func() {
-		if closer, ok := st.(io.Closer); ok {
-			_ = closer.Close()
-		}
-	}()
 
 	_, tmpOK := temporal.(storer.PackfileWriter)
 	_, ok := st.(storer.PackfileWriter)

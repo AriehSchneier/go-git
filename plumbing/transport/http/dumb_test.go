@@ -77,12 +77,8 @@ func (s *dumbUploadPackSuite) SetupTest() {
 	s.EmptyEndpoint = httpEndpoint(addr, "empty.git")
 	s.NonExistentEndpoint = httpEndpoint(addr, "non-existent.git")
 
-	storer := filesystem.NewStorage(basicFS, nil)
-	s.Storer = storer
-	s.T().Cleanup(func() { _ = storer.Close() })
-	emptyStorer := filesystem.NewStorage(emptyFS, nil)
-	s.EmptyStorer = emptyStorer
-	s.T().Cleanup(func() { _ = emptyStorer.Close() })
+	s.Storer = filesystem.NewStorage(basicFS, nil)
+	s.EmptyStorer = filesystem.NewStorage(emptyFS, nil)
 	s.NonExistentStorer = memory.NewStorage()
 
 	s.Transport = NewTransport(Options{ForceDumb: true})

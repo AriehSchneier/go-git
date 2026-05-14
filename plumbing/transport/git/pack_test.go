@@ -33,18 +33,13 @@ func setupGitPackEnv(t testing.TB) gitPackEnv {
 
 	startDaemon(t.(*testing.T), base, port)
 
-	storer := filesystem.NewStorage(basicFS, nil)
-	t.Cleanup(func() { _ = storer.Close() })
-	emptyStorer := filesystem.NewStorage(emptyFS, nil)
-	t.Cleanup(func() { _ = emptyStorer.Close() })
-
 	host := fmt.Sprintf("localhost:%d", port)
 	return gitPackEnv{
 		Endpoint:            &url.URL{Scheme: "git", Host: host, Path: "/basic.git"},
 		EmptyEndpoint:       &url.URL{Scheme: "git", Host: host, Path: "/empty.git"},
 		NonExistentEndpoint: &url.URL{Scheme: "git", Host: host, Path: "/non-existent.git"},
-		Storer:              storer,
-		EmptyStorer:         emptyStorer,
+		Storer:              filesystem.NewStorage(basicFS, nil),
+		EmptyStorer:         filesystem.NewStorage(emptyFS, nil),
 		NonExistentStorer:   memory.NewStorage(),
 		Transport:           NewTransport(Options{}),
 	}

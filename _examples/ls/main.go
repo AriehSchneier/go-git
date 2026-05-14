@@ -40,7 +40,7 @@ func main() {
 	s := filesystem.NewStorageWithOptions(fs, cache.NewObjectLRUDefault(), filesystem.Options{KeepDescriptors: true})
 	r, err := git.Open(s, fs)
 	CheckIfError(err)
-	defer func() { _ = r.Close() }()
+	defer s.Close()
 
 	// Resolve revision into a sha1 commit, only some revisions are resolved
 	// look at the doc to get more details

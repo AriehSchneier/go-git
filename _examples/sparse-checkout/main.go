@@ -20,7 +20,6 @@ func main() {
 		NoCheckout: true,
 	})
 	CheckIfError(err)
-	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	CheckIfError(err)

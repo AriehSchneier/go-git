@@ -42,7 +42,6 @@ func (s *EncoderAdvancedSuite) TestEncodeDecode() {
 		dotgit, err := f.DotGit()
 		s.Require().NoError(err)
 		storage := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
-		defer func() { _ = storage.Close() }()
 		s.testEncodeDecode(storage, 10)
 	}
 }
@@ -60,7 +59,6 @@ func (s *EncoderAdvancedSuite) TestEncodeDecodeNoDeltaCompression() {
 		dotgit, err := f.DotGit()
 		s.Require().NoError(err)
 		storage := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
-		defer func() { _ = storage.Close() }()
 		s.testEncodeDecode(storage, 0)
 	}
 }

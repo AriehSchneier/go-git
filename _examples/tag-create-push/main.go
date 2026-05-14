@@ -26,7 +26,6 @@ func main() {
 		log.Printf("clone repo error: %s", err)
 		return
 	}
-	defer func() { _ = r.Close() }()
 
 	created, err := setTag(r, tag)
 	if err != nil {

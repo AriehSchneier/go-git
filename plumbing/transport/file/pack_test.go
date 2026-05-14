@@ -37,17 +37,12 @@ func setupFilePackEnv(t testing.TB) filePackEnv {
 		t.Fatal(err)
 	}
 
-	storer := filesystem.NewStorage(basicFS, nil)
-	t.Cleanup(func() { _ = storer.Close() })
-	emptyStorer := filesystem.NewStorage(emptyFS, nil)
-	t.Cleanup(func() { _ = emptyStorer.Close() })
-
 	return filePackEnv{
 		Endpoint:            &url.URL{Scheme: "file", Path: basicPath},
 		EmptyEndpoint:       &url.URL{Scheme: "file", Path: emptyPath},
 		NonExistentEndpoint: &url.URL{Scheme: "file", Path: "/nonexistent/repo.git"},
-		Storer:              storer,
-		EmptyStorer:         emptyStorer,
+		Storer:              filesystem.NewStorage(basicFS, nil),
+		EmptyStorer:         filesystem.NewStorage(emptyFS, nil),
 		NonExistentStorer:   memory.NewStorage(),
 		Transport:           NewTransport(Options{}),
 	}

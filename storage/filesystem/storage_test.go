@@ -51,7 +51,6 @@ func TestNewStorageShouldNotAddAnyContentsToDir(t *testing.T) {
 		fs,
 		cache.NewObjectLRUDefault(),
 		filesystem.Options{ExclusiveAccess: true})
-	defer func() { _ = sto.Close() }()
 	assert.NotNil(t, sto)
 
 	fis, err := fs.ReadDir("/")
@@ -131,7 +130,6 @@ func TestSetObjectFormat(t *testing.T) {
 				cache.NewObjectLRUDefault(),
 				filesystem.Options{ObjectFormat: tt.initialFormat},
 			)
-			defer func() { _ = sto.Close() }()
 			require.NoError(t, sto.Init())
 
 			err := sto.SetObjectFormat(tt.targetFormat)
@@ -234,7 +232,6 @@ func TestNewStorageWithOptions(t *testing.T) {
 				cache.NewObjectLRUDefault(),
 				filesystem.Options{ObjectFormat: tt.inObjectFormat},
 			)
-			defer func() { _ = sto.Close() }()
 
 			cfg, err := sto.Config()
 			require.NoError(t, err)
@@ -286,7 +283,6 @@ func TestSetObjectFormatWithExistingPackfiles(t *testing.T) {
 			fs, err := fixtures.ByTag(tt.tag).ByObjectFormat(tt.fixOF).One().DotGit()
 			require.NoError(t, err)
 			sto := filesystem.NewStorage(fs, cache.NewObjectLRUDefault())
-			defer func() { _ = sto.Close() }()
 
 			packs, err := sto.ObjectPacks()
 			require.NoError(t, err)
@@ -346,7 +342,6 @@ func TestSupportsExtension(t *testing.T) {
 			t.Parallel()
 
 			sto := filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault())
-			defer func() { _ = sto.Close() }()
 			got := sto.SupportsExtension(tt.ext, tt.value)
 			assert.Equal(t, tt.want, got)
 		})
@@ -364,6 +359,5 @@ func getExplicitSHA1(t testing.TB) billy.Filesystem {
 	err = st.SetConfig(cfg)
 	require.NoError(t, err)
 
-	_ = st.Close()
 	return fs
 }

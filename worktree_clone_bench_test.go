@@ -28,7 +28,6 @@ func BenchmarkCloneLargeRepo(b *testing.B) {
 
 	sourceRepo, err := PlainInit(sourceDir, false)
 	require.NoError(b, err)
-	b.Cleanup(func() { _ = sourceRepo.Close() })
 
 	sourceWt, err := sourceRepo.Worktree()
 	require.NoError(b, err)
@@ -84,14 +83,13 @@ func BenchmarkCloneLargeRepo(b *testing.B) {
 	i := 0
 	for b.Loop() {
 		cloneDir := filepath.Join(tmpDir, fmt.Sprintf("clone-%d", i))
-		clonedRepo, err := PlainClone(cloneDir, &CloneOptions{
+		_, err := PlainClone(cloneDir, &CloneOptions{
 			URL:    sourceDir,
 			Shared: true,
 		})
 		if err != nil {
 			b.Fatalf("failed to clone repository: %v", err)
 		}
-		_ = clonedRepo.Close()
 		i++
 	}
 }
@@ -110,7 +108,6 @@ func BenchmarkCloneDeepRepo(b *testing.B) {
 
 	sourceRepo, err := PlainInit(sourceDir, false)
 	require.NoError(b, err)
-	b.Cleanup(func() { _ = sourceRepo.Close() })
 
 	sourceWt, err := sourceRepo.Worktree()
 	require.NoError(b, err)
@@ -167,14 +164,13 @@ func BenchmarkCloneDeepRepo(b *testing.B) {
 	i := 0
 	for b.Loop() {
 		cloneDir := filepath.Join(tmpDir, fmt.Sprintf("clone-%d", i))
-		clonedRepo, err := PlainClone(cloneDir, &CloneOptions{
+		_, err := PlainClone(cloneDir, &CloneOptions{
 			URL:    sourceDir,
 			Shared: true,
 		})
 		if err != nil {
 			b.Fatalf("failed to clone repository: %v", err)
 		}
-		_ = clonedRepo.Close()
 		i++
 	}
 }

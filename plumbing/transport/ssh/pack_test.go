@@ -36,18 +36,13 @@ func setupSSHPackEnv(t testing.TB) sshPackEnv {
 	basicPath := filepath.ToSlash(basicFS.Root())
 	emptyPath := filepath.ToSlash(emptyFS.Root())
 
-	storer := filesystem.NewStorage(basicFS, nil)
-	t.Cleanup(func() { _ = storer.Close() })
-	emptyStorer := filesystem.NewStorage(emptyFS, nil)
-	t.Cleanup(func() { _ = emptyStorer.Close() })
-
 	host := formatSSHHost(addr)
 	return sshPackEnv{
 		Endpoint:            &url.URL{Scheme: "ssh", User: url.User("git"), Host: host, Path: basicPath},
 		EmptyEndpoint:       &url.URL{Scheme: "ssh", User: url.User("git"), Host: host, Path: emptyPath},
 		NonExistentEndpoint: &url.URL{Scheme: "ssh", User: url.User("git"), Host: host, Path: "/nonexistent/repo.git"},
-		Storer:              storer,
-		EmptyStorer:         emptyStorer,
+		Storer:              filesystem.NewStorage(basicFS, nil),
+		EmptyStorer:         filesystem.NewStorage(emptyFS, nil),
 		NonExistentStorer:   memory.NewStorage(),
 		Transport: NewTransport(Options{
 			ClientConfig: func(_ context.Context, _ *transport.Request) (*stdssh.ClientConfig, error) {

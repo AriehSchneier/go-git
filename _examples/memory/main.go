@@ -26,7 +26,6 @@ func main() {
 	})
 
 	CheckIfError(err)
-	defer func() { _ = r.Close() }()
 
 	// ... retrieving the branch being pointed by HEAD
 	ref, err := r.Head()
