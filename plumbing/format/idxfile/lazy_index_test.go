@@ -345,7 +345,7 @@ func TestMemoryIndexOffset64OutOfRange(t *testing.T) {
 	idxBytes, h := buildOOBOffset64Idx()
 
 	idx := new(MemoryIndex)
-	d := NewDecoder(bytes.NewReader(idxBytes), hash.New(crypto.SHA1))
+	d := NewDecoder(FromBytes(idxBytes), hash.New(crypto.SHA1))
 	require.NoError(t, d.Decode(idx))
 
 	_, err := idx.FindOffset(h)
@@ -437,17 +437,14 @@ func BenchmarkScannerFindOffset(b *testing.B) {
 }
 
 func fixtureLazyIndex(withRev bool) (*LazyIndex, error) {
-	f := bytes.NewBufferString(fixtureLarge4GB)
-	memIdx := new(MemoryIndex)
-	d := NewDecoder(base64.NewDecoder(base64.StdEncoding, f), hash.New(crypto.SHA1))
-	if err := d.Decode(memIdx); err != nil {
+	idxBytes, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, bytes.NewBufferString(fixtureLarge4GB)))
+	if err != nil {
 		return nil, err
 	}
 
-	// Re-decode the raw idx bytes for ReadAt.
-	raw := bytes.NewBufferString(fixtureLarge4GB)
-	idxBytes, err := io.ReadAll(base64.NewDecoder(base64.StdEncoding, raw))
-	if err != nil {
+	memIdx := new(MemoryIndex)
+	d := NewDecoder(FromBytes(idxBytes), hash.New(crypto.SHA1))
+	if err := d.Decode(memIdx); err != nil {
 		return nil, err
 	}
 

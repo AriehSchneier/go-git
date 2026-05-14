@@ -27,7 +27,7 @@ func TestEncode(t *testing.T) {
 
 	validIdxFn := func() *MemoryIndex {
 		idx := NewMemoryIndex(crypto.SHA1.Size())
-		d := NewDecoder(bytes.NewBuffer(expected), hash.New(crypto.SHA1))
+		d := NewDecoder(FromBytes(expected), hash.New(crypto.SHA1))
 		err := d.Decode(idx)
 		require.NoError(t, err)
 		return idx
@@ -152,7 +152,7 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 
 			idx := NewMemoryIndex(tc.hasher.Size())
-			d := NewDecoder(bytes.NewBuffer(expected), hash.New(tc.hasher))
+			d := NewDecoder(FromBytes(expected), hash.New(tc.hasher))
 			err = d.Decode(idx)
 			require.NoError(t, err)
 
@@ -181,7 +181,7 @@ func TestDecodeEncode(t *testing.T) {
 		}
 
 		idx := NewMemoryIndex(h.Size())
-		d := NewDecoder(bytes.NewBuffer(expected), hash.New(h))
+		d := NewDecoder(FromBytes(expected), hash.New(h))
 		err = d.Decode(idx)
 		require.NoError(t, err)
 

@@ -67,13 +67,18 @@ func buildMinimalRev(count, hashSize int) []byte {
 }
 
 // buildOOBOffset64Idx constructs a structurally valid v2 idx file
-// whose single 32-bit offset entry is marked as a 64-bit overflow
-// (MSB set) but whose lower 31 bits point past the only allocated
-// 64-bit offset slot. The idx decodes successfully; using it must
-// fail with [ErrMalformedIdxFile] rather than crash.
+// whose 32-bit offset entry for the first object is marked as a
+// 64-bit overflow (MSB set) but whose lower 31 bits point past the
+// only allocated 64-bit offset slot. The idx decodes successfully;
+// using it must fail with [ErrMalformedIdxFile] rather than reach
+// the post-decode lookups in an inconsistent state.
 //
-// The returned hash is the name of the single object — pass it to
+// The returned hash is the name of the first object — pass it to
 // FindOffset to exercise the malformed-input path.
+//
+// The fixture has two objects so the on-disk length satisfies the
+// idx v2 size formula applied during Decode; only with `nr > 1`
+// does the formula permit any 8-byte offset64 slots.
 //
 // Lives outside `_test.go` so the OSS-Fuzz harness, which does not
 // see other test files when extracting fuzz targets, can reach it
@@ -85,22 +90,30 @@ func buildOOBOffset64Idx() ([]byte, plumbing.Hash) {
 	buf.Write(idxHeader)
 	_ = binary.Write(&buf, binary.BigEndian, uint32(2))
 
-	// Fanout: one object whose first byte is 0x00, so all 256 entries
-	// hold the cumulative count 1.
+	// Fanout: two objects whose first bytes are 0x00, so all 256
+	// entries hold the cumulative count 2.
 	for range 256 {
-		_ = binary.Write(&buf, binary.BigEndian, uint32(1))
+		_ = binary.Write(&buf, binary.BigEndian, uint32(2))
 	}
 
-	// One name (any valid 20-byte hash with first byte 0x00).
-	name := make([]byte, hashSize)
-	name[hashSize-1] = 0x01
-	buf.Write(name)
+	// Two names (both valid 20-byte hashes with first byte 0x00,
+	// in ascending order so the table remains well-formed).
+	name1 := make([]byte, hashSize)
+	name1[hashSize-1] = 0x01
+	name2 := make([]byte, hashSize)
+	name2[hashSize-1] = 0x02
+	buf.Write(name1)
+	buf.Write(name2)
 
-	// CRC32 (one entry, value irrelevant).
-	buf.Write(make([]byte, 4))
+	// CRC32 (two entries, values irrelevant).
+	buf.Write(make([]byte, 8))
 
-	// Offset32: MSB set, lower 31 bits = 5 → references Offset64[40:48].
+	// Offset32 for object 1: MSB set, lower 31 bits = 5 → references
+	// Offset64[40:48]; only one 8-byte slot exists, so this is out
+	// of range.
 	_ = binary.Write(&buf, binary.BigEndian, uint32(0x80000005))
+	// Offset32 for object 2: a small in-range value.
+	_ = binary.Write(&buf, binary.BigEndian, uint32(0))
 
 	// Offset64: a single 8-byte slot — the lookup above is out of range.
 	_ = binary.Write(&buf, binary.BigEndian, uint64(0x12345678))
@@ -115,7 +128,7 @@ func buildOOBOffset64Idx() ([]byte, plumbing.Hash) {
 
 	var h plumbing.Hash
 	h.ResetBySize(hashSize)
-	_, _ = h.Write(name)
+	_, _ = h.Write(name1)
 	return buf.Bytes(), h
 }
 
