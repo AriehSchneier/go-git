@@ -23,6 +23,7 @@ func setupBenchmarkRepo(b *testing.B, numFiles, numSubdirs, numGoroutines int) *
 
 	repo, err := PlainInit(repoDir, false)
 	require.NoError(b, err)
+	b.Cleanup(func() { _ = repo.Close() })
 
 	wt, err := repo.Worktree()
 	require.NoError(b, err)
@@ -180,6 +181,7 @@ func setupIgnoredDirRepo(b *testing.B, tracked, untracked int) *Worktree {
 
 	repo, err := PlainInit(repoDir, false)
 	require.NoError(b, err)
+	b.Cleanup(func() { _ = repo.Close() })
 
 	wt, err := repo.Worktree()
 	require.NoError(b, err)
