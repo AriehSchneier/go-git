@@ -28,7 +28,6 @@ func TestCloneFileUrlWindows(t *testing.T) {
 
 	r, err := PlainInit(dir, false)
 	require.NoError(t, err)
-	defer func() { _ = r.Close() }()
 
 	err = util.WriteFile(r.wt, "foo", nil, 0o755)
 	require.NoError(t, err)
@@ -61,13 +60,10 @@ func TestCloneFileUrlWindows(t *testing.T) {
 
 	for _, tc := range tests {
 		assert.Regexp(t, regexp.MustCompile(tc.pattern), tc.url)
-		clonedRepo, err := Clone(memory.NewStorage(), nil, &CloneOptions{
+		_, err = Clone(memory.NewStorage(), nil, &CloneOptions{
 			URL: tc.url,
 		})
 
 		assert.NoError(t, err, "url: %q", tc.url)
-		if clonedRepo != nil {
-			_ = clonedRepo.Close()
-		}
 	}
 }

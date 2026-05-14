@@ -19,7 +19,6 @@ import (
 func TestIndexCacheHit(t *testing.T) {
 	t.Parallel()
 	sto, spy := newIndexStorageWithSpy(t)
-	defer func() { _ = sto.Close() }()
 
 	orig := &index.Index{
 		Version: 2,
@@ -50,7 +49,6 @@ func TestIndexCacheHit(t *testing.T) {
 func TestIndexCacheReturnsCopy(t *testing.T) {
 	t.Parallel()
 	sto, spy := newIndexStorageWithSpy(t)
-	defer func() { _ = sto.Close() }()
 
 	require.NoError(t, sto.SetIndex(&index.Index{
 		Version: 2,
@@ -74,7 +72,6 @@ func TestIndexCacheReturnsCopy(t *testing.T) {
 func TestIndexCacheIsolatesEntrySliceMutation(t *testing.T) {
 	t.Parallel()
 	sto, spy := newIndexStorageWithSpy(t)
-	defer func() { _ = sto.Close() }()
 
 	require.NoError(t, sto.SetIndex(&index.Index{
 		Version: 2,
@@ -103,7 +100,6 @@ func TestIndexCacheIsolatesEntrySliceMutation(t *testing.T) {
 func TestIndexCacheIsolatesSetIndexCallerMutation(t *testing.T) {
 	t.Parallel()
 	sto, spy := newIndexStorageWithSpy(t)
-	defer func() { _ = sto.Close() }()
 
 	idx := &index.Index{
 		Version: 2,
@@ -133,7 +129,6 @@ func TestIndexCacheIsolatesSetIndexCallerMutation(t *testing.T) {
 func TestIndexCacheInvalidatedByExternalChange(t *testing.T) {
 	t.Parallel()
 	sto, spy := newIndexStorageWithSpy(t)
-	defer func() { _ = sto.Close() }()
 
 	require.NoError(t, sto.SetIndex(&index.Index{
 		Version: 2,
@@ -160,7 +155,6 @@ func TestIndexCacheInvalidatedByExternalChange(t *testing.T) {
 func TestIndexCacheWriteThrough(t *testing.T) {
 	t.Parallel()
 	sto, spy := newIndexStorageWithSpy(t)
-	defer func() { _ = sto.Close() }()
 
 	require.NoError(t, sto.SetIndex(&index.Index{
 		Version: 2,
@@ -181,7 +175,6 @@ func TestIndexCacheWriteThrough(t *testing.T) {
 func TestIndexCacheMissingFile(t *testing.T) {
 	t.Parallel()
 	sto, spy := newIndexStorageWithSpy(t)
-	defer func() { _ = sto.Close() }()
 
 	idx, err := sto.Index()
 	require.NoError(t, err)
@@ -199,7 +192,6 @@ func TestIndexCacheClearedWhenFileDeleted(t *testing.T) {
 	fs := osfs.New(tmp)
 	spy := newSpyIndexCache()
 	sto := filesystem.NewStorageWithOptions(fs, cache.NewObjectLRUDefault(), filesystem.Options{IndexCache: spy})
-	defer func() { _ = sto.Close() }()
 	require.NoError(t, sto.Init())
 
 	require.NoError(t, sto.SetIndex(&index.Index{

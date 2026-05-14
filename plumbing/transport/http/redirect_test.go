@@ -17,6 +17,7 @@ import (
 	"github.com/go-git/go-git/v6/internal/transport/test"
 	"github.com/go-git/go-git/v6/plumbing"
 	transport "github.com/go-git/go-git/v6/plumbing/transport"
+	"github.com/go-git/go-git/v6/storage/filesystem"
 	"github.com/go-git/go-git/v6/storage/memory"
 )
 
@@ -73,7 +74,8 @@ func TestRedirectSchema(t *testing.T) {
 	t.Parallel()
 
 	base, backend := setupSmartServer(t)
-	_ = prepareRepo(t, fixtures.Basic().One(), base, "basic.git")
+	basicFS := prepareRepo(t, fixtures.Basic().One(), base, "basic.git")
+	_ = filesystem.NewStorage(basicFS, nil)
 
 	rl := test.ListenTCP(t)
 	raddr := rl.Addr().(*net.TCPAddr)

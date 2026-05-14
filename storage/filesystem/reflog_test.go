@@ -17,7 +17,6 @@ import (
 func TestReflogReadNonExistent(t *testing.T) {
 	t.Parallel()
 	sto := filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault())
-	defer func() { _ = sto.Close() }()
 
 	entries, err := sto.Reflog(plumbing.ReferenceName("refs/heads/no-such-ref"))
 	require.NoError(t, err)
@@ -27,7 +26,6 @@ func TestReflogReadNonExistent(t *testing.T) {
 func TestReflogAppendAndRead(t *testing.T) {
 	t.Parallel()
 	sto := filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault())
-	defer func() { _ = sto.Close() }()
 	ref := plumbing.ReferenceName("refs/heads/main")
 
 	e1 := &reflog.Entry{
@@ -67,7 +65,6 @@ func TestReflogAppendAndRead(t *testing.T) {
 func TestReflogDelete(t *testing.T) {
 	t.Parallel()
 	sto := filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault())
-	defer func() { _ = sto.Close() }()
 	ref := plumbing.ReferenceName("refs/heads/main")
 
 	require.NoError(t, sto.AppendReflog(ref, &reflog.Entry{
@@ -91,7 +88,6 @@ func TestReflogDelete(t *testing.T) {
 func TestReflogDeleteNonExistent(t *testing.T) {
 	t.Parallel()
 	sto := filesystem.NewStorage(memfs.New(), cache.NewObjectLRUDefault())
-	defer func() { _ = sto.Close() }()
 
 	err := sto.DeleteReflog(plumbing.ReferenceName("refs/heads/no-such-ref"))
 	assert.NoError(t, err)

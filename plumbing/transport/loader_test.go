@@ -1,7 +1,6 @@
 package transport
 
 import (
-	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -21,7 +20,6 @@ func TestFilesystemLoader_Load(t *testing.T) {
 
 	repoPath := filepath.Join(dir, "repo.git")
 	st := filesystem.NewStorage(osfs.New(repoPath), nil)
-	defer func() { _ = st.Close() }()
 	require.NoError(t, st.Init())
 	cfg, err := st.Config()
 	require.NoError(t, err)
@@ -33,11 +31,6 @@ func TestFilesystemLoader_Load(t *testing.T) {
 	u := &url.URL{Path: "repo"}
 	sto, err := loader.Load(u)
 	require.NoError(t, err)
-	defer func() {
-		if closer, ok := sto.(io.Closer); ok {
-			_ = closer.Close()
-		}
-	}()
 	assert.NotNil(t, sto)
 }
 
@@ -46,7 +39,6 @@ func TestFilesystemLoader_LoadBare(t *testing.T) {
 	dir := t.TempDir()
 
 	st := filesystem.NewStorage(osfs.New(filepath.Join(dir, "bare.git")), nil)
-	defer func() { _ = st.Close() }()
 	require.NoError(t, st.Init())
 	cfg, err := st.Config()
 	require.NoError(t, err)
@@ -58,11 +50,6 @@ func TestFilesystemLoader_LoadBare(t *testing.T) {
 	u := &url.URL{Path: "bare.git"}
 	sto, err := loader.Load(u)
 	require.NoError(t, err)
-	defer func() {
-		if closer, ok := sto.(io.Closer); ok {
-			_ = closer.Close()
-		}
-	}()
 	assert.NotNil(t, sto)
 }
 
@@ -125,11 +112,6 @@ func TestFilesystemLoader_LoadWithConfigDir(t *testing.T) {
 
 	st, err := loader.Load(u)
 	require.NoError(t, err)
-	defer func() {
-		if closer, ok := st.(io.Closer); ok {
-			_ = closer.Close()
-		}
-	}()
 	require.NotNil(t, st)
 
 	// Verify it loaded the correct config
@@ -161,11 +143,6 @@ func TestFilesystemLoader_LoadWithGitfile(t *testing.T) {
 
 	st, err := loader.Load(u)
 	require.NoError(t, err)
-	defer func() {
-		if closer, ok := st.(io.Closer); ok {
-			_ = closer.Close()
-		}
-	}()
 	require.NotNil(t, st)
 
 	// Verify it loaded the correct config
@@ -195,11 +172,6 @@ func TestFilesystemLoader_LoadWithRelativeGitfile(t *testing.T) {
 
 	st, err := loader.Load(u)
 	require.NoError(t, err)
-	defer func() {
-		if closer, ok := st.(io.Closer); ok {
-			_ = closer.Close()
-		}
-	}()
 	require.NotNil(t, st)
 
 	// Verify it loaded the correct config

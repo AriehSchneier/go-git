@@ -108,7 +108,6 @@ func testCommitAndTree(s *CommitNodeSuite, nodeIndex CommitNodeIndex) {
 func (s *CommitNodeSuite) TestObjectGraph() {
 	f := fixtures.ByTag("commit-graph").One()
 	storer := unpackRepository(f)
-	defer func() { _ = storer.Close() }()
 
 	nodeIndex := NewObjectCommitNodeIndex(storer)
 	testWalker(s, nodeIndex)
@@ -119,7 +118,6 @@ func (s *CommitNodeSuite) TestObjectGraph() {
 func (s *CommitNodeSuite) TestCommitGraph() {
 	f := fixtures.ByTag("commit-graph").One()
 	storer := unpackRepository(f)
-	defer func() { _ = storer.Close() }()
 	reader, err := storer.Filesystem().Open(path.Join("objects", "info", "commit-graph"))
 	s.NoError(err)
 	defer reader.Close()
@@ -136,7 +134,6 @@ func (s *CommitNodeSuite) TestCommitGraph() {
 func (s *CommitNodeSuite) TestMixedGraph() {
 	f := fixtures.ByTag("commit-graph").One()
 	storer := unpackRepository(f)
-	defer func() { _ = storer.Close() }()
 
 	// Take the commit-graph file and copy it to memory index without the last commit
 	reader, err := storer.Filesystem().Open(path.Join("objects", "info", "commit-graph"))

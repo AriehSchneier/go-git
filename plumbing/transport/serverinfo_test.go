@@ -39,7 +39,6 @@ func (s *ServerInfoSuite) TestUpdateServerInfoTags() {
 	dotgit, err := fixture.DotGit()
 	s.Require().NoError(err)
 	st := filesystem.NewStorage(dotgit, nil)
-	defer func() { _ = st.Close() }()
 	fs := memfs.New()
 
 	err = UpdateServerInfo(st, fs)
@@ -53,7 +52,6 @@ func (s *ServerInfoSuite) TestUpdateServerInfoBasic() {
 	dotgit, err := fixture.DotGit()
 	s.Require().NoError(err)
 	st := filesystem.NewStorage(dotgit, nil)
-	defer func() { _ = st.Close() }()
 	fs := memfs.New()
 
 	err = UpdateServerInfo(st, fs)
@@ -67,7 +65,6 @@ func (s *ServerInfoSuite) TestUpdateServerInfoBasicChange() {
 	dotgit, err := fixture.DotGit()
 	s.Require().NoError(err)
 	st := filesystem.NewStorage(dotgit, nil)
-	defer func() { _ = st.Close() }()
 	fs := memfs.New()
 
 	err = UpdateServerInfo(st, fs)

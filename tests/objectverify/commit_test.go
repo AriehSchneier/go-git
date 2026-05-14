@@ -125,7 +125,6 @@ func TestCommitVerifyAlignment(t *testing.T) {
 
 			r, err := git.PlainOpen(repo)
 			require.NoError(t, err)
-			defer func() { _ = r.Close() }()
 			commit, err := r.CommitObject(hash)
 			ggDecodeErr := err
 			var ggVerifyErr error

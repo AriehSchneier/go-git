@@ -30,7 +30,6 @@ func (s *PatchStatsSuite) TestStatsWithRename() {
 	fs := memfs.New()
 	r, err := git.Init(memory.NewStorage(), git.WithWorkTree(fs))
 	s.NoError(err)
-	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	s.NoError(err)

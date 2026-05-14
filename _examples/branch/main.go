@@ -19,7 +19,6 @@ func main() {
 		URL: url,
 	})
 	CheckIfError(err)
-	defer func() { _ = r.Close() }()
 
 	// Create a new branch to the current HEAD
 	Info("git branch my-branch")

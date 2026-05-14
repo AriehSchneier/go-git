@@ -368,7 +368,6 @@ func (s *SuiteCommit) TestStringMultiLine() {
 	dotgit, err := f.DotGit()
 	s.Require().NoError(err)
 	sto := filesystem.NewStorage(dotgit, cache.NewObjectLRUDefault())
-	defer func() { _ = sto.Close() }()
 
 	o, err := sto.EncodedObject(plumbing.CommitObject, hash)
 	s.NoError(err)

@@ -20,7 +20,6 @@ func main() {
 	Info("git init")
 	r, err := git.PlainInit(tmp, false)
 	CheckIfError(err)
-	defer func() { _ = r.Close() }()
 
 	// Load the configuration
 	cfg, err := r.Config()

@@ -46,7 +46,6 @@ func main() {
 	// Opens an already existing repository.
 	r, err := git.PlainOpen(directory)
 	CheckIfError(err)
-	defer func() { _ = r.Close() }()
 
 	w, err := r.Worktree()
 	CheckIfError(err)

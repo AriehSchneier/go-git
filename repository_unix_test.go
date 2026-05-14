@@ -21,7 +21,6 @@ func TestPlainInitFileMode(t *testing.T) {
 	dir := t.TempDir()
 	r, err := PlainInit(dir, false)
 	require.NoError(t, err)
-	defer func() { _ = r.Close() }()
 
 	cfg, err := r.Config()
 	require.NoError(t, err)
