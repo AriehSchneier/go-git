@@ -54,3 +54,20 @@ jobs:
         uses: github/codeql-action/analyze@014f16e7ab1402f30e7c3329d33797e7948572db # v4.31.3
         with:
           category: "/language:${{matrix.language}}"
+          output: sarif-results
+          upload: always
+
+      - name: Display CodeQL Results
+        if: always()
+        run: |
+          echo "=== CodeQL Analysis Results ==="
+          if [ -d "sarif-results" ]; then
+            for sarif in sarif-results/*.sarif; do
+              if [ -f "$sarif" ]; then
+                echo "Processing $sarif..."
+                jq -r '.runs[].results[] | "[\(.level // "warning")] \(.message.text) at \(.locations[0].physicalLocation.artifactLocation.uri):\(.locations[0].physicalLocation.region.startLine)"' "$sarif" 2>/dev/null || echo "No results in $sarif"
+              fi
+            done
+          else
+            echo "No SARIF results directory found"
+          fi
